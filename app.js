@@ -49,6 +49,15 @@
   console.log('[Debug] 日志面板已启动，页面右下角🐞按钮可查看');
 })();
 
+// ============ 环境信息日志（方便远程诊断） ============
+console.log('[Env] UA:', navigator.userAgent);
+console.log('[Env] 平台:', navigator.platform);
+console.log('[Env] 语言:', navigator.language);
+console.log('[Env] SpeechRecognition:', !!(window.SpeechRecognition || window.webkitSpeechRecognition) ? '支持' : '不支持');
+console.log('[Env] speechSynthesis:', 'speechSynthesis' in window ? '支持' : '不支持');
+console.log('[Env] getUserMedia:', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? '支持' : '不支持');
+console.log('[Env] isSecureContext:', window.isSecureContext);
+
 // ============ 参数配置 ============
 const CONFIG = {
   FACE_WIDTH_REAL_CM: 14.0,

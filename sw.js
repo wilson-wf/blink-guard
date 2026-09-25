@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v16 调试日志面板 */
-const CACHE_NAME = 'blink-guard-v16';
+/* 眨眨护眼 PWA Service Worker — v17 远程日志 console.re */
+const CACHE_NAME = 'blink-guard-v17';
 const ASSETS = [
   './',
   './index.html',
-  './style.css?v=16',
-  './app.js?v=16',
+  './style.css?v=17',
+  './app.js?v=17',
   './manifest.json',
 ];
 
