@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#2196F3">
+  <meta name="referrer" content="no-referrer">
+  <title>眨眨 - AI护眼小怪兽</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+  <link rel="apple-touch-icon" href="icon-192.png">
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部状态栏 -->
+    <header class="topbar">
+      <span class="title">👁 眨眨 · AI护眼小怪兽</span>
+      <div class="voice-status" id="voiceStatus">🔊 语音检测中…</div>
+      <button id="installBtn" class="install-btn" style="display:none;">安装</button>
+    </header>
+
+    <!-- 桌宠区域 -->
+    <div class="pet-stage">
+      <!-- 气泡提示 -->
+      <div id="bubble" class="bubble">
+        <span id="bubbleText">你好呀，我是眨眨~</span>
+      </div>
+
+      <!-- 卡通眨眨（SVG） -->
+      <div id="pet" class="pet" title="点我打个招呼">
+        <svg viewBox="0 0 200 220" width="100%" height="100%">
+          <!-- 身体 -->
+          <ellipse id="body" cx="100" cy="130" rx="70" ry="75" fill="#4FC3F7"/>
+          <!-- 肚子 -->
+          <ellipse cx="100" cy="145" rx="42" ry="48" fill="#B3E5FC"/>
+          <!-- 犄角 -->
+          <path d="M55 70 Q45 40 60 30 Q65 50 70 70 Z" fill="#29B6F6"/>
+          <path d="M145 70 Q155 40 140 30 Q135 50 130 70 Z" fill="#29B6F6"/>
+          <!-- 眼睛 -->
+          <g id="eyes">
+            <circle class="eye-white" cx="75" cy="110" r="16" fill="#fff"/>
+            <circle class="eye-white" cx="125" cy="110" r="16" fill="#fff"/>
+            <circle class="eye-pupil" id="pupilL" cx="75" cy="110" r="8" fill="#1565C0"/>
+            <circle class="eye-pupil" id="pupilR" cx="125" cy="110" r="8" fill="#1565C0"/>
+            <circle class="eye-shine" cx="72" cy="107" r="3" fill="#fff"/>
+            <circle class="eye-shine" cx="122" cy="107" r="3" fill="#fff"/>
+          </g>
+          <!-- 嘴巴 -->
+          <path id="mouth" d="M80 150 Q100 168 120 150" fill="none" stroke="#01579B" stroke-width="4" stroke-linecap="round"/>
+          <!-- 腮红 -->
+          <ellipse cx="55" cy="135" rx="10" ry="6" fill="#F48FB1" opacity="0.6"/>
+          <ellipse cx="145" cy="135" rx="10" ry="6" fill="#F48FB1" opacity="0.6"/>
+          <!-- 小手 -->
+          <ellipse id="handL" cx="35" cy="140" rx="14" ry="10" fill="#4FC3F7"/>
+          <ellipse id="handR" cx="165" cy="140" rx="14" ry="10" fill="#4FC3F7"/>
+          <!-- 脚 -->
+          <ellipse cx="75" cy="200" rx="18" ry="10" fill="#0288D1"/>
+          <ellipse cx="125" cy="200" rx="18" ry="10" fill="#0288D1"/>
+        </svg>
+      </div>
+
+      <!-- 状态标签 -->
+      <div id="petStatus" class="pet-status">等待启动</div>
+    </div>
+
+    <!-- 用眼进度条 -->
+    <div class="progress-wrap">
+      <div class="progress-label">
+        <span>用眼进度</span>
+        <span id="timeText">00:00 / 20:00</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+    </div>
+
+    <!-- 模式切换 -->
+    <div class="mode-switch">
+      <button id="modeAuto" class="mode-btn active">自动</button>
+      <button id="modeLearn" class="mode-btn">学习</button>
+      <button id="modePlay" class="mode-btn">玩耍</button>
+    </div>
+
+    <!-- 控制按钮 -->
+    <div class="controls">
+      <button id="startBtn" class="btn btn-primary">开始护眼</button>
+      <button id="pauseBtn" class="btn" disabled>暂停</button>
+      <button id="restBtn" class="btn">立即休息</button>
+      <button id="camBtn" class="btn">查看画面</button>
+      <button id="ttsBtn" class="btn">语音诊断</button>
+      <button id="voiceBtn" class="btn">🎤 对话</button>
+      <button id="textBtn" class="btn">💬 文字</button>
+      <button id="voiceStyleBtn" class="btn">🎵 儿童</button>
+    </div>
+
+    <!-- 摄像头小窗（默认隐藏） -->
+    <div id="camPanel" class="cam-panel" style="display:none;">
+      <div class="cam-header">
+        <span>摄像头画面</span>
+        <button id="closeCam" class="close-btn">×</button>
+      </div>
+      <div class="cam-wrap">
+        <video id="video" playsinline muted></video>
+        <canvas id="canvas"></canvas>
+        <div id="loading" class="loading">
+          <div class="spinner"></div>
+          <p>眨眨正在加载AI模型…</p>
+        </div>
+        <div id="noCamera" class="no-camera" style="display:none;">
+          <p>无法访问摄像头</p>
+          <p class="hint">请在浏览器设置中允许摄像头权限，并确保使用 HTTPS 访问</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 会话数据 -->
+    <div class="stats">
+      <div class="stat-item">
+        <div class="stat-num" id="badCount">0</div>
+        <div class="stat-label">不良坐姿</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-num" id="closeCount">0</div>
+        <div class="stat-label">过近次数</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-num" id="restCount">0</div>
+        <div class="stat-label">休息次数</div>
+      </div>
+    </div>
+
+    <!-- 历史日志 -->
+    <details class="log-section">
+      <summary>查看历史日志</summary>
+      <div id="logList"></div>
+      <button id="clearLog" class="btn btn-small">清空日志</button>
+    </details>
+
+    <footer class="footer">
+      第二十四届"广东省少年儿童发明奖"参赛作品
+    </footer>
+  </div>
+
+  <!-- MediaPipe Pose（人体姿态检测，正面/侧面/背面均可用） -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

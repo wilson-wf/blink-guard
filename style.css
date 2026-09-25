@@ -1,0 +1,320 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  color: #333;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 10px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #2196F3;
+  color: #fff;
+  border-radius: 12px;
+  margin-bottom: 10px;
+}
+.topbar .title { font-size: 16px; font-weight: bold; }
+.voice-status {
+  font-size: 13px;
+  background: rgba(255,255,255,0.2);
+  padding: 4px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.voice-status.ok { background: rgba(76,175,80,0.3); }
+.voice-status.warn { background: rgba(255,152,0,0.3); }
+.voice-status.bad { background: rgba(244,67,54,0.4); }
+.install-btn {
+  background: #fff;
+  color: #2196F3;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-weight: bold;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ============ 桌宠区域 ============ */
+.pet-stage {
+  position: relative;
+  background: linear-gradient(180deg, #e1f5fe 0%, #b3e5fc 100%);
+  border-radius: 16px;
+  padding: 20px 10px 14px;
+  margin-bottom: 12px;
+  text-align: center;
+  overflow: hidden;
+}
+
+/* 气泡 */
+.bubble {
+  display: inline-block;
+  position: relative;
+  background: #fff;
+  border-radius: 16px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: bold;
+  color: #333;
+  max-width: 85%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  margin-bottom: 10px;
+  animation: bubblePop 0.3s ease;
+}
+.bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 10px solid #fff;
+}
+@keyframes bubblePop {
+  0% { transform: scale(0.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* 眨眨本体 */
+.pet {
+  width: 180px;
+  height: 200px;
+  margin: 0 auto;
+  cursor: pointer;
+  transition: transform 0.2s;
+  animation: float 3s ease-in-out infinite;
+}
+.pet:active { transform: scale(0.95); }
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+/* 眨眼动画 */
+.eye-pupil { transition: all 0.15s; }
+.pet.blink .eye-pupil { transform: scaleY(0.1); transform-origin: center; }
+
+/* 状态颜色 - 通过 body class 控制 */
+body.state-green .pet-status { background: #4CAF50; }
+body.state-orange .pet-status { background: #FF9800; }
+body.state-red .pet-status { background: #F44336; }
+body.state-gray .pet-status { background: #757575; }
+
+.pet-status {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 14px;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+/* 表情：开心（绿色） */
+body.state-green #mouth { d: path("M80 148 Q100 172 120 148"); }
+body.state-green #body { fill: #81C784; }
+body.state-green #handL, body.state-green #handR { fill: #81C784; }
+
+/* 表情：担心（橙色） */
+body.state-orange #mouth { d: path("M80 158 Q100 145 120 158"); }
+body.state-orange #body { fill: #FFB74D; }
+body.state-orange #handL, body.state-orange #handR { fill: #FFB74D; }
+body.state-orange .pet { animation: shake 0.5s ease-in-out infinite; }
+@keyframes shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-3deg); }
+  75% { transform: rotate(3deg); }
+}
+
+/* 表情：惊讶/过近（红色） */
+body.state-red #mouth { d: path("M92 150 Q100 168 108 150"); }
+body.state-red #body { fill: #E57373; }
+body.state-red #handL, body.state-red #handR { fill: #E57373; }
+body.state-red .pet { animation: jump 0.4s ease-in-out infinite; }
+@keyframes jump {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-15px) scale(1.05); }
+}
+
+/* 休息（闭眼 Zzz） */
+body.state-rest .eye-pupil { opacity: 0; }
+body.state-rest .eye-white { fill: #E0E0E0; }
+body.state-rest #mouth { d: path("M88 152 Q100 160 112 152"); }
+
+/* ============ 进度条 ============ */
+.progress-wrap { margin-bottom: 12px; }
+.progress-label {
+  display: flex; justify-content: space-between;
+  font-size: 13px; margin-bottom: 4px; color: #555;
+}
+.progress-bar {
+  height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%; width: 0;
+  background: #4CAF50;
+  transition: width 0.3s, background 0.3s;
+}
+
+/* ============ 模式切换 ============ */
+.mode-switch {
+  display: flex; gap: 6px; margin-bottom: 10px;
+}
+.mode-btn {
+  flex: 1;
+  padding: 8px 4px;
+  border: 2px solid #e0e0e0; border-radius: 20px;
+  font-size: 13px; font-weight: bold;
+  cursor: pointer;
+  background: #fff;
+  color: #999;
+  transition: all 0.2s;
+}
+.mode-btn.active {
+  background: #2196F3;
+  color: #fff;
+  border-color: #2196F3;
+}
+
+/* ============ 控制按钮 ============ */
+.controls {
+  display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.btn {
+  flex: 1; min-width: 70px;
+  padding: 12px 8px;
+  border: none; border-radius: 10px;
+  font-size: 13px; font-weight: bold;
+  cursor: pointer;
+  background: #fff;
+  color: #333;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: #2196F3; color: #fff; }
+.btn-small { flex: none; padding: 6px 14px; font-size: 12px; }
+
+/* ============ 摄像头小窗 ============ */
+.cam-panel {
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.cam-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; background: #2196F3; color: #fff; font-weight: bold;
+}
+.close-btn {
+  background: none; border: none; color: #fff;
+  font-size: 22px; cursor: pointer; line-height: 1;
+}
+.cam-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000;
+}
+#video, #canvas {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%; object-fit: cover;
+}
+#video { opacity: 0; }
+
+.loading, .no-camera {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.8); color: #fff;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center; padding: 20px;
+}
+.spinner {
+  width: 40px; height: 40px;
+  border: 4px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.no-camera .hint { font-size: 13px; opacity: 0.8; margin-top: 8px; }
+
+/* ============ 统计 ============ */
+.stats {
+  display: flex; gap: 8px; margin-bottom: 12px;
+}
+.stat-item {
+  flex: 1;
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px 4px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+.stat-num { font-size: 22px; font-weight: bold; color: #2196F3; }
+.stat-label { font-size: 12px; color: #777; margin-top: 2px; }
+
+/* ============ 日志 ============ */
+.log-section {
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+.log-section summary {
+  font-weight: bold; cursor: pointer; color: #2196F3;
+}
+.log-item {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 8px 0; border-bottom: 1px solid #eee;
+  font-size: 12px; color: #555;
+}
+.log-time { color: #999; width: 100%; }
+.empty { text-align: center; color: #aaa; padding: 12px; }
+
+.footer {
+  text-align: center; font-size: 11px; color: #999;
+  padding: 10px;
+}
+
+/* 文字输入面板 */
+.text-input-panel {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+}
+.text-input-box {
+  background: #fff; border-radius: 16px;
+  padding: 20px; width: 85%; max-width: 320px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+.text-input-title {
+  font-size: 16px; font-weight: bold; color: #2196F3;
+  margin-bottom: 12px; text-align: center;
+}
+#textCommandInput {
+  width: 100%; padding: 10px 12px;
+  border: 2px solid #e0e0e0; border-radius: 8px;
+  font-size: 15px; outline: none;
+  box-sizing: border-box;
+}
+#textCommandInput:focus { border-color: #2196F3; }
+.text-input-btns {
+  display: flex; gap: 10px; margin-top: 12px;
+}
+.text-input-btns .btn { flex: 1; margin: 0; }
