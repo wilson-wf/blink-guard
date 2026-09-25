@@ -7,7 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <title>眨眨 - AI护眼小怪兽</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="style.css?v=15">
+  <link rel="stylesheet" href="style.css?v=16">
   <link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
@@ -144,9 +144,22 @@
     </footer>
   </div>
 
+  <!-- 调试日志面板 -->
+  <button id="debugBtn" style="position:fixed;bottom:8px;right:8px;z-index:9999;background:#333;color:#0f0;border:none;border-radius:50%;width:36px;height:36px;font-size:14px;cursor:pointer;opacity:0.6;">🐞</button>
+  <div id="debugPanel" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:10000;overflow:auto;padding:12px;font-family:monospace;font-size:11px;color:#0f0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="color:#ff0;">🐞 调试日志（语音识别相关）</span>
+      <div>
+        <button id="debugClearBtn" style="background:#555;color:#fff;border:none;padding:4px 8px;border-radius:4px;margin-right:4px;cursor:pointer;">清空</button>
+        <button id="debugCloseBtn" style="background:#555;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;">关闭</button>
+      </div>
+    </div>
+    <div id="debugLog" style="white-space:pre-wrap;word-break:break-all;line-height:1.5;"></div>
+  </div>
+
   <!-- MediaPipe Pose（人体姿态检测，正面/侧面/背面均可用） -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

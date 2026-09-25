@@ -7,6 +7,48 @@
  * 界面：桌宠模式 —— 卡通小怪兽"眨眨"在前台，摄像头在后台检测
  */
 
+// ============ 调试日志面板（拦截 console 输出到页面） ============
+(function initDebugPanel() {
+  const debugLog = [];
+  const MAX_LOGS = 200;
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const originalError = console.error;
+
+  function addToDebugPanel(level, args) {
+    const time = new Date().toLocaleTimeString();
+    const msg = args.map(a => {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    const line = `[${time}] [${level}] ${msg}`;
+    debugLog.push(line);
+    if (debugLog.length > MAX_LOGS) debugLog.shift();
+    const panel = document.getElementById('debugLog');
+    if (panel) {
+      panel.textContent = debugLog.join('\n');
+      panel.scrollTop = panel.scrollHeight;
+    }
+  }
+
+  console.log = function(...args) { addToDebugPanel('LOG', args); originalLog.apply(console, args); };
+  console.warn = function(...args) { addToDebugPanel('WARN', args); originalWarn.apply(console, args); };
+  console.error = function(...args) { addToDebugPanel('ERROR', args); originalError.apply(console, args); };
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('debugBtn');
+    const panel = document.getElementById('debugPanel');
+    if (btn && panel) {
+      btn.onclick = () => { panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; };
+      document.getElementById('debugCloseBtn').onclick = () => { panel.style.display = 'none'; };
+      document.getElementById('debugClearBtn').onclick = () => { debugLog.length = 0; document.getElementById('debugLog').textContent = ''; };
+    }
+  });
+
+  console.log('[Debug] 日志面板已启动，页面右下角🐞按钮可查看');
+})();
+
 // ============ 参数配置 ============
 const CONFIG = {
   FACE_WIDTH_REAL_CM: 14.0,

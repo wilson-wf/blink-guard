@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v15 语音识别超时保护 */
-const CACHE_NAME = 'blink-guard-v15';
+/* 眨眨护眼 PWA Service Worker — v16 调试日志面板 */
+const CACHE_NAME = 'blink-guard-v16';
 const ASSETS = [
   './',
   './index.html',
-  './style.css?v=15',
-  './app.js?v=15',
+  './style.css?v=16',
+  './app.js?v=16',
   './manifest.json',
 ];
 
