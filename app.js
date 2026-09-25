@@ -399,6 +399,9 @@ function ttsDiagnose() {
 // ============ 语音识别（用户说话 → 眨眨回应） ============
 let recognition = null;
 let isListening = false;
+let recognitionTimer = null;     // 超时定时器
+let recognitionAttempts = 0;     // 连续失败次数
+const RECOGNITION_TIMEOUT = 8000; // 8秒没结果就自动停止
 
 // 检测语音识别是否支持
 asrSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -454,6 +457,14 @@ function updateMicStatus() {
 // 启动时检测
 checkMicPermission();
 
+// 清除超时定时器
+function clearRecognitionTimer() {
+  if (recognitionTimer) {
+    clearTimeout(recognitionTimer);
+    recognitionTimer = null;
+  }
+}
+
 function initVoiceRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -463,29 +474,58 @@ function initVoiceRecognition() {
   }
   asrSupported = true;
   recognition = new SR();
+  // 尝试多种中文语言编码，提高兼容性
   recognition.lang = 'zh-CN';
   recognition.continuous = false;
   recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
 
   recognition.onstart = () => {
     isListening = true;
+    recognitionAttempts = 0;
     voiceBtn.textContent = '🔴 聆听中…';
     setBubble('我在听~请说话');
+    console.log('[语音识别] onstart - 开始监听');
+
+    // 超时保护：8秒没任何回调就自动停止
+    clearRecognitionTimer();
+    recognitionTimer = setTimeout(() => {
+      console.warn('[语音识别] 超时，强制停止');
+      try { recognition.stop(); } catch (e) {}
+      isListening = false;
+      voiceBtn.textContent = '🎤 对话';
+      recognitionAttempts++;
+      if (recognitionAttempts >= 2) {
+        // 连续超时2次，说明这个浏览器的语音识别不能用
+        speak('语音识别没反应，用文字跟我聊天吧');
+        showTextInput();
+      } else {
+        speak('没听到声音，再说一次试试，或者用文字聊天吧');
+      }
+    }, RECOGNITION_TIMEOUT);
   };
 
+  // 诊断事件：帮助判断卡在哪一步
+  recognition.onaudiostart = () => console.log('[语音识别] 音频采集已开始');
+  recognition.onsoundstart = () => console.log('[语音识别] 检测到声音');
+  recognition.onspeechstart = () => console.log('[语音识别] 检测到语音');
+
   recognition.onresult = (event) => {
+    clearRecognitionTimer();
     const text = event.results[0][0].transcript.trim();
-    console.log('[语音识别]', text);
+    console.log('[语音识别] 识别结果:', text);
+    recognitionAttempts = 0;
     handleVoiceCommand(text);
   };
 
   recognition.onerror = (event) => {
+    clearRecognitionTimer();
     console.warn('[语音识别] 错误:', event.error);
     isListening = false;
     voiceBtn.textContent = '🎤 对话';
 
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-      // 鸿蒙浏览器常见：有 getUserMedia 但没有语音识别服务
+      // 鸿蒙/国产浏览器常见：有 getUserMedia 但没有语音识别服务
       speak('这个浏览器没有语音识别功能，用文字跟我聊天吧');
       showTextInput();
     } else if (event.error === 'no-speech') {
@@ -496,7 +536,7 @@ function initVoiceRecognition() {
       speak('网络不太好，语音识别用不了，试试文字聊天吧');
       showTextInput();
     } else if (event.error === 'aborted') {
-      // 用户主动停止，不提示
+      // 用户主动停止或超时停止，不额外提示
     } else {
       speak('语音识别暂时用不了，试试用文字跟我聊天吧');
       showTextInput();
@@ -504,8 +544,10 @@ function initVoiceRecognition() {
   };
 
   recognition.onend = () => {
+    clearRecognitionTimer();
     isListening = false;
     voiceBtn.textContent = '🎤 对话';
+    console.log('[语音识别] onend - 监听结束');
   };
 
   return true;
