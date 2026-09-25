@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v13 多平台大模型（硅基流动免费） */
-const CACHE_NAME = 'blink-guard-v13';
+/* 眨眨护眼 PWA Service Worker — v14 修复缓存强制更新 */
+const CACHE_NAME = 'blink-guard-v14';
 const ASSETS = [
   './',
   './index.html',
-  './style.css',
-  './app.js',
+  './style.css?v=13',
+  './app.js?v=13',
   './manifest.json',
 ];
 
