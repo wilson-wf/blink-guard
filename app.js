@@ -107,6 +107,9 @@ let lastSpeechError = ''; // 最近一次错误
 let voicesLoaded = false; // 语音列表是否已加载
 let ttsSupported = false;  // 浏览器是否支持 TTS
 let ttsHasChinese = false; // 是否有中文语音
+let asrSupported = false;  // 浏览器是否支持语音识别(SpeechRecognition)
+let micPermission = 'unknown'; // 麦克风权限状态: granted | denied | prompt | unknown
+let micTestStream = null;  // 麦克风测试用的 stream
 
 function updateVoiceStatus() {
   const el = document.getElementById('voiceStatus');
@@ -162,22 +165,34 @@ updateVoiceStatus();
 // ============ 在线 TTS 降级（鸿蒙等无本地中文语音引擎时使用） ============
 // 百度翻译 TTS 接口，无需 API Key，返回 MP3 音频（已验证可用）
 // 备用接口：有道 TTS、Google Translate TTS
+// 百度 spd 参数：语速 1(慢)~15(快)，默认5
+function getBaiduSpd(rate) {
+  // 将 rate(0.5~2.0) 映射到 spd(1~15)
+  const spd = Math.round(3 + (rate - 0.85) * 10);
+  return Math.max(1, Math.min(15, spd));
+}
 const ONLINE_TTS_ENDPOINTS = [
-  (text) => `https://fanyi.baidu.com/gettts?lan=zh&text=${encodeURIComponent(text)}&spd=5&source=web`,
+  (text) => `https://fanyi.baidu.com/gettts?lan=zh&text=${encodeURIComponent(text)}&spd=${getBaiduSpd(getVoiceStyle().rate)}&source=web`,
   (text) => `https://tts.youdao.com/fanyivoice?word=${encodeURIComponent(text)}&le=zh&keyfrom=speaker-target`,
   (text) => `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=zh-CN&client=tw-ob`,
 ];
 
-// 声音风格：调整音调(pitch)和语速(rate)实现儿童/卡通音
-// 百度 TTS 返回的是固定音色，通过 playbackRate 升高音调来模拟童声
+// 声音风格：调整音调(pitch)和语速(rate)实现不同音色
+// 本地语音用 pitch/rate，在线 TTS(百度)用 playbackRate 变调 + spd 变速
 const VOICE_STYLES = {
-  normal:  { rate: 1.0, pitch: 1.0, label: '普通' },
-  child:   { rate: 1.25, pitch: 1.6, label: '儿童' },  // 音调高，语速稍快
-  cartoon: { rate: 1.4, pitch: 2.0, label: '卡通' },   // 音调很高，卡通效果
+  normal:  { rate: 1.0,  pitch: 1.0, label: '普通' },
+  child:   { rate: 1.2,  pitch: 1.7, label: '儿童' },   // 小朋友声音
+  cartoon: { rate: 1.4,  pitch: 2.0, label: '卡通' },   // 卡通搞怪
+  gentle:  { rate: 0.9,  pitch: 1.3, label: '温柔' },   // 温柔姐姐
+  lively:  { rate: 1.3,  pitch: 1.5, label: '活泼' },   // 活泼少女
+  robot:   { rate: 1.1,  pitch: 0.7, label: '机器人' }, // 机器人
+  deep:    { rate: 0.85, pitch: 0.5, label: '低沉' },   // 低沉大叔
+  jieje:   { rate: 1.0,  pitch: 1.5, label: '姐姐' },   // 小姐姐
 };
 let currentVoiceStyle = 'child';  // 默认儿童音
 
 function getVoiceStyle() { return VOICE_STYLES[currentVoiceStyle] || VOICE_STYLES.normal; }
+updateVoiceStyleBtn();  // 在 VOICE_STYLES 定义后初始化按钮文字
 
 function onlineTts(text) {
   return new Promise((resolve, reject) => {
@@ -350,11 +365,12 @@ function unlockSpeech() {
 // TTS 诊断（用户可点击查看）
 function ttsDiagnose() {
   const info = [];
+  info.push(`【语音合成(TTS)】`);
   info.push(`speechSynthesis: ${'speechSynthesis' in window ? '✅支持' : '❌不支持'}`);
   if ('speechSynthesis' in window) {
     const voices = window.speechSynthesis.getVoices();
     info.push(`语音数: ${voices.length}`);
-    info.push(`中文语音: ${chineseVoice ? '✅' + chineseVoice.name : '❌无'}`);
+    info.push(`中文语音: ${chineseVoice ? '✅' + chineseVoice.name : '❌无(用在线TTS)'}`);
     info.push(`speaking: ${window.speechSynthesis.speaking}`);
     info.push(`pending: ${window.speechSynthesis.pending}`);
   }
@@ -362,6 +378,21 @@ function ttsDiagnose() {
   info.push(`在线TTS备用: 有道 / Google`);
   info.push(`最后错误: ${lastSpeechError || '无'}`);
   info.push(`speechEnabled: ${speechEnabled}`);
+  info.push(``);
+  info.push(`【语音识别(ASR)】`);
+  info.push(`SpeechRecognition: ${asrSupported ? '✅支持' : '❌不支持(用文字输入)'}`);
+  info.push(`麦克风权限: ${micPermission}`);
+  info.push(`当前声音风格: ${getVoiceStyle().label}`);
+  info.push(``);
+  info.push(`【AI 大模型】`);
+  const prov = LLM_PROVIDERS[getLlmProvider()];
+  info.push(`平台: ${prov.name}${hasLlmKey() ? ' (✅已配置)' : ' (❌未配置)'}`);
+  info.push(`模型: ${getLlmModel()}`);
+  info.push(`对话历史: ${chatHistory.length} 条`);
+  info.push(``);
+  info.push(`提示：不支持语音识别的浏览器（如鸿蒙自带浏览器）`);
+  info.push(`可以用"💬文字"按钮跟眨眨聊天。`);
+  info.push(`配置大模型后眨眨就能自由对话啦～推荐硅基流动（永久免费）`);
   alert(info.join('\n'));
 }
 
@@ -369,13 +400,68 @@ function ttsDiagnose() {
 let recognition = null;
 let isListening = false;
 
+// 检测语音识别是否支持
+asrSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+// 检测麦克风权限状态（不弹窗，仅查询）
+async function checkMicPermission() {
+  try {
+    if (navigator.permissions && navigator.permissions.query) {
+      const result = await navigator.permissions.query({ name: 'microphone' });
+      micPermission = result.state; // 'granted' | 'denied' | 'prompt'
+      result.onchange = () => { micPermission = result.state; updateMicStatus(); };
+    } else {
+      micPermission = 'unknown';
+    }
+  } catch (e) {
+    micPermission = 'unknown';
+  }
+  updateMicStatus();
+  return micPermission;
+}
+
+// 更新麦克风状态显示
+function updateMicStatus() {
+  const el = document.getElementById('micStatus');
+  if (!el) return;
+  let text = '', cls = '', title = '';
+  if (!asrSupported) {
+    text = '🎤 需文字输入';
+    cls = 'warn';
+    title = '当前浏览器不支持语音识别，请使用"文字"按钮跟眨眨聊天';
+  } else if (micPermission === 'granted') {
+    text = '🎤 麦克风已允许';
+    cls = 'ok';
+    title = '麦克风权限已允许，点击"对话"按钮即可说话';
+  } else if (micPermission === 'denied') {
+    text = '🎤 麦克风被拒绝';
+    cls = 'bad';
+    title = '麦克风权限被拒绝，请在浏览器设置中允许';
+  } else if (micPermission === 'prompt') {
+    text = '🎤 点击授权麦克风';
+    cls = 'warn';
+    title = '点击"对话"按钮时会弹出麦克风授权请求';
+  } else {
+    text = '🎤 麦克风状态未知';
+    cls = 'warn';
+    title = '无法检测麦克风权限，点击"对话"试试';
+  }
+  el.textContent = text;
+  el.className = 'voice-status ' + cls;
+  el.title = title;
+}
+
+// 启动时检测
+checkMicPermission();
+
 function initVoiceRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
-    voiceBtn.disabled = true;
-    voiceBtn.textContent = '🎤 不支持';
+    asrSupported = false;
+    updateMicStatus();
     return false;
   }
+  asrSupported = true;
   recognition = new SR();
   recognition.lang = 'zh-CN';
   recognition.continuous = false;
@@ -395,18 +481,24 @@ function initVoiceRecognition() {
 
   recognition.onerror = (event) => {
     console.warn('[语音识别] 错误:', event.error);
-    // 注意：getUserMedia 已经成功过，所以这里的错误不是麦克风权限问题
-    // 而是浏览器没有语音识别引擎（鸿蒙浏览器常见）
+    isListening = false;
+    voiceBtn.textContent = '🎤 对话';
+
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-      speak('当前浏览器没有语音识别引擎，你可以用文字跟我聊天');
-      // 自动弹出文字输入框
+      // 鸿蒙浏览器常见：有 getUserMedia 但没有语音识别服务
+      speak('这个浏览器没有语音识别功能，用文字跟我聊天吧');
       showTextInput();
     } else if (event.error === 'no-speech') {
       speak('没听清，再说一次吧');
     } else if (event.error === 'audio-capture') {
       speak('麦克风被占用了，关闭其他录音应用再试');
+    } else if (event.error === 'network') {
+      speak('网络不太好，语音识别用不了，试试文字聊天吧');
+      showTextInput();
+    } else if (event.error === 'aborted') {
+      // 用户主动停止，不提示
     } else {
-      speak('语音识别用不了，试试用文字跟我聊天吧');
+      speak('语音识别暂时用不了，试试用文字跟我聊天吧');
       showTextInput();
     }
   };
@@ -419,14 +511,333 @@ function initVoiceRecognition() {
   return true;
 }
 
+// 测试麦克风：录音1秒后播放，确认麦克风能正常工作
+async function testMicrophone() {
+  try {
+    setBubble('正在测试麦克风…');
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micTestStream = stream;
+    micPermission = 'granted';
+    updateMicStatus();
+
+    // 用 MediaRecorder 录1秒
+    const chunks = [];
+    const recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play().then(() => {
+        speak('麦克风正常，刚才是你自己的声音哦');
+      }).catch(() => {
+        speak('录到了声音但播放失败，不过麦克风应该是好的');
+      });
+      // 播放完后释放
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        stream.getTracks().forEach(t => t.stop());
+      };
+    };
+    recorder.start();
+    setTimeout(() => recorder.stop(), 1000);
+    setBubble('请说一句话…');
+  } catch (err) {
+    console.warn('[麦克风测试] 失败:', err.name, err.message);
+    micPermission = err.name === 'NotAllowedError' ? 'denied' : 'unknown';
+    updateMicStatus();
+    let tip = '麦克风测试失败。';
+    if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
+      tip = '麦克风权限被拒绝。\n\n请在浏览器设置中允许麦克风：\n\n' +
+            '方法1：点击地址栏左侧的锁形/盾牌图标 → 麦克风 → 允许\n' +
+            '方法2：浏览器 → 设置 → 隐私 → 麦克风 → 允许本站点\n' +
+            '方法3：鸿蒙 → 设置 → 应用 → 浏览器 → 权限 → 麦克风 → 允许';
+    } else if (err.name === 'NotFoundError') {
+      tip = '未检测到麦克风设备，请确认手机麦克风正常。';
+    } else if (err.name === 'NotReadableError') {
+      tip = '麦克风被其他应用占用，请关闭录音类应用后重试。';
+    } else {
+      tip = `麦克风异常：${err.name}。${err.message || ''}`;
+    }
+    alert(tip);
+  }
+}
+
+// ============ 大模型对话（支持多平台，默认用免费模型） ============
+// 支持平台：
+//   siliconflow - 硅基流动，多个模型永久免费（推荐）
+//   deepseek    - DeepSeek，新用户有免费额度
+//   zhipu       - 智谱AI，GLM-4.7-Flash 永久免费
+const LLM_PROVIDERS = {
+  siliconflow: {
+    name: '硅基流动',
+    url: 'https://api.siliconflow.cn/v1/chat/completions',
+    models: [
+      { id: 'Qwen/Qwen2.5-7B-Instruct', label: 'Qwen2.5-7B（免费）', free: true },
+      { id: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek-V3（免费）', free: true },
+      { id: 'THUDM/glm-4-9b-chat', label: 'GLM-4-9B（免费）', free: true },
+      { id: 'internlm/internlm2_5-7b-chat', label: 'InternLM2.5-7B（免费）', free: true },
+    ],
+    defaultModel: 'Qwen/Qwen2.5-7B-Instruct',
+    keyUrl: 'https://cloud.siliconflow.cn/account/ak',
+    tip: '注册即送额度，多个模型永久免费',
+  },
+  deepseek: {
+    name: 'DeepSeek',
+    url: 'https://api.deepseek.com/chat/completions',
+    models: [
+      { id: 'deepseek-chat', label: 'deepseek-chat', free: false },
+      { id: 'deepseek-reasoner', label: 'deepseek-reasoner', free: false },
+    ],
+    defaultModel: 'deepseek-chat',
+    keyUrl: 'https://platform.deepseek.com/api_keys',
+    tip: '新用户送免费额度，用完需充值',
+  },
+  zhipu: {
+    name: '智谱AI',
+    url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+    models: [
+      { id: 'glm-4-flash', label: 'GLM-4-Flash（免费）', free: true },
+      { id: 'glm-4.7-flash', label: 'GLM-4.7-Flash（免费）', free: true },
+    ],
+    defaultModel: 'glm-4-flash',
+    keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
+    tip: 'GLM-4-Flash 永久免费',
+  },
+};
+
+const LLM_SYSTEM_PROMPT = `你是"眨眨"，一个可爱的AI护眼小怪兽，专门帮助小朋友保护眼睛、养成好习惯。
+你的性格：活泼、温柔、有耐心，像好朋友一样陪伴小朋友。
+你的功能：监督坐姿、提醒距离、定时休息、检测摔倒、场景识别（学习/玩耍）。
+回复要求：
+1. 用小朋友能听懂的话，语气亲切可爱，不要太正式
+2. 回复简短，一般不超过30个字
+3. 可以适当使用感叹号和语气词，比如"呀"、"哦"、"呢"
+4. 如果小朋友说眼睛累、坐姿不好等，要温柔提醒
+5. 不要暴露你是AI或大模型，你就是眨眨`;
+
+// 最近几轮对话上下文（保持对话连贯）
+let chatHistory = [];
+const MAX_HISTORY = 6;
+
+function getLlmProvider() {
+  return localStorage.getItem('blink_llm_provider') || 'siliconflow';
+}
+function setLlmProvider(p) {
+  localStorage.setItem('blink_llm_provider', p);
+}
+function getLlmKey() {
+  return localStorage.getItem('blink_llm_key') || '';
+}
+function setLlmKey(key) {
+  localStorage.setItem('blink_llm_key', key.trim());
+}
+function getLlmModel() {
+  return localStorage.getItem('blink_llm_model') || LLM_PROVIDERS[getLlmProvider()].defaultModel;
+}
+function setLlmModel(m) {
+  localStorage.setItem('blink_llm_model', m);
+}
+function hasLlmKey() {
+  return getLlmKey().length > 0;
+}
+
+// 调用大模型获取回复
+async function askLLM(userText) {
+  if (!hasLlmKey()) return null;
+  const provider = LLM_PROVIDERS[getLlmProvider()];
+  const model = getLlmModel();
+  const key = getLlmKey();
+
+  const messages = [{ role: 'system', content: LLM_SYSTEM_PROMPT }];
+  for (const h of chatHistory) messages.push(h);
+  messages.push({ role: 'user', content: userText });
+
+  try {
+    setBubble('眨眨正在思考…');
+    const resp = await fetch(provider.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + key,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 150,
+      }),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      console.warn('[LLM] 请求失败:', resp.status, errText);
+      return null;
+    }
+    const data = await resp.json();
+    const reply = data.choices?.[0]?.message?.content?.trim();
+    if (!reply) return null;
+
+    chatHistory.push({ role: 'user', content: userText });
+    chatHistory.push({ role: 'assistant', content: reply });
+    if (chatHistory.length > MAX_HISTORY) {
+      chatHistory = chatHistory.slice(chatHistory.length - MAX_HISTORY);
+    }
+    return reply;
+  } catch (e) {
+    console.warn('[LLM] 异常:', e);
+    return null;
+  }
+}
+
+// AI 设置面板
+let aiSettingsPanel = null;
+function showAiSettings() {
+  if (aiSettingsPanel) {
+    aiSettingsPanel.style.display = 'flex';
+    refreshAiSettingsPanel();
+    return;
+  }
+  aiSettingsPanel = document.createElement('div');
+  aiSettingsPanel.className = 'text-input-panel';
+  aiSettingsPanel.innerHTML = `
+    <div class="text-input-box">
+      <div class="text-input-title">🤖 AI 大脑设置</div>
+      <p style="font-size:12px;color:#666;margin:0 0 8px;">
+        接入大模型后，眨眨就能跟你自由聊天啦～推荐用<b style="color:#4CAF50;">硅基流动</b>，多个模型永久免费！
+      </p>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:12px;color:#555;">选择平台：</label>
+        <select id="llmProviderSelect" style="width:100%;padding:6px;border:2px solid #e0e0e0;border-radius:8px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </select>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:12px;color:#555;">选择模型：</label>
+        <select id="llmModelSelect" style="width:100%;padding:6px;border:2px solid #e0e0e0;border-radius:8px;font-size:13px;margin-top:4px;box-sizing:border-box;">
+        </select>
+      </div>
+      <p id="llmTip" style="font-size:11px;color:#888;margin:0 0 8px;"></p>
+      <input type="text" id="llmKeyInput" placeholder="粘贴你的 API Key" style="width:100%;padding:8px;border:2px solid #e0e0e0;border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:8px;" />
+      <p style="font-size:11px;color:#999;margin:0 0 8px;">
+        Key 只存在你手机本地，不会上传。<a id="llmKeyUrl" href="#" target="_blank" style="color:#2196F3;">获取 Key</a>
+      </p>
+      <div id="aiStatusText" style="font-size:12px;color:#999;margin-bottom:8px;"></div>
+      <div class="text-input-btns">
+        <button class="btn" id="aiSaveBtn">保存</button>
+        <button class="btn" id="aiClearBtn">清除</button>
+        <button class="btn" id="aiCloseBtn">关闭</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(aiSettingsPanel);
+  bindAiSettingsEvents();
+  refreshAiSettingsPanel();
+}
+
+function bindAiSettingsEvents() {
+  const providerSelect = document.getElementById('llmProviderSelect');
+  providerSelect.onchange = () => {
+    setLlmProvider(providerSelect.value);
+    // 切换平台时重置模型为默认
+    setLlmModel(LLM_PROVIDERS[providerSelect.value].defaultModel);
+    refreshAiSettingsPanel();
+  };
+  document.getElementById('aiSaveBtn').onclick = () => {
+    const key = document.getElementById('llmKeyInput').value.trim();
+    if (key) {
+      setLlmKey(key);
+      updateAiStatus();
+      speak('AI大脑已连接，现在可以跟我聊天啦');
+    } else {
+      alert('请输入 API Key');
+    }
+  };
+  document.getElementById('aiClearBtn').onclick = () => {
+    localStorage.removeItem('blink_llm_key');
+    document.getElementById('llmKeyInput').value = '';
+    updateAiStatus();
+    speak('已清除AI设置');
+  };
+  document.getElementById('aiCloseBtn').onclick = () => {
+    aiSettingsPanel.style.display = 'none';
+  };
+}
+
+function refreshAiSettingsPanel() {
+  const providerSelect = document.getElementById('llmProviderSelect');
+  const modelSelect = document.getElementById('llmModelSelect');
+  const tip = document.getElementById('llmTip');
+  const keyUrl = document.getElementById('llmKeyUrl');
+  const keyInput = document.getElementById('llmKeyInput');
+
+  // 填充平台列表
+  providerSelect.innerHTML = Object.entries(LLM_PROVIDERS).map(([k, v]) =>
+    `<option value="${k}">${v.name}</option>`
+  ).join('');
+  providerSelect.value = getLlmProvider();
+
+  // 填充当前平台的模型列表
+  const provider = LLM_PROVIDERS[getLlmProvider()];
+  modelSelect.innerHTML = provider.models.map(m =>
+    `<option value="${m.id}">${m.label}</option>`
+  ).join('');
+  modelSelect.value = getLlmModel();
+
+  // 显示提示和获取链接
+  tip.textContent = '说明：' + provider.tip;
+  keyUrl.href = provider.keyUrl;
+  keyInput.value = getLlmKey();
+  updateAiStatus();
+}
+
+function updateAiStatus() {
+  const el = document.getElementById('aiStatusText');
+  if (!el) return;
+  if (hasLlmKey()) {
+    const provider = LLM_PROVIDERS[getLlmProvider()];
+    el.textContent = `✅ 已配置 ${provider.name}，大模型对话已启用`;
+    el.style.color = '#4CAF50';
+  } else {
+    el.textContent = '⚠️ 未配置 Key，将使用固定指令回复';
+    el.style.color = '#FF9800';
+  }
+}
+
 // 处理用户语音指令
 function handleVoiceCommand(text) {
   let reply = '';
 
-  if (/你好|嗨|哈喽|在吗/.test(text)) {
+  if (/你能做什么|你会什么|功能|帮助|怎么用|有什么用/.test(text)) {
+    reply = '我是眨眨，可以帮你：监督坐姿、提醒距离、定时休息、检测摔倒，还能陪你聊天哦。你可以说"坐姿怎么样"、"休息一下"、"切换学习模式"。';
+  }
+  else if (/你是谁|你叫什么|介绍一下|自我介绍/.test(text)) {
+    reply = '我是眨眨，你的AI护眼小怪兽！我会用摄像头看你的坐姿，帮你保护眼睛。';
+  }
+  else if (/你好|嗨|哈喽|在吗/.test(text)) {
     reply = '你好呀小主人，我是眨眨，有什么可以帮你的？';
   }
-  else if (/坐姿|姿势|坐得|怎么样/.test(text)) {
+  else if (/谢谢|感谢|多谢|辛苦了/.test(text)) {
+    reply = '不客气小主人，保护眼睛是我应该做的！';
+  }
+  else if (/加油|鼓励|我可以|坚持/.test(text)) {
+    reply = '小主人最棒了！坚持住，眨眨给你加油！';
+  }
+  else if (/累|困|疲倦|疲劳/.test(text)) {
+    reply = '累了就休息一下吧，远眺20秒看看远方，眨眨陪你。';
+    state.inRest = true;
+    state.restSeconds = CONFIG.REST_DURATION;
+    speak(reply);
+    setBubble(reply);
+    return;
+  }
+  else if (/眼睛|眼酸|眼累|眼睛酸|眼睛累|眼睛疼/.test(text)) {
+    reply = '眼睛累了吧？快休息一下，远眺20秒看看绿色植物。';
+    state.inRest = true;
+    state.restSeconds = CONFIG.REST_DURATION;
+    speak(reply);
+    setBubble(reply);
+    return;
+  }
+  else if (/坐姿|姿势|坐得|怎么样|坐好没/.test(text)) {
     // 根据当前状态回复
     if (state.calibrating) {
       reply = '正在校准中，请坐端正哦';
@@ -438,18 +849,19 @@ function handleVoiceCommand(text) {
       reply = '你的坐姿很棒，继续保持！';
     }
   }
-  else if (/休息|休息一下|歇一会/.test(text)) {
+  else if (/休息|休息一下|歇一会|歇一下/.test(text)) {
     state.inRest = true;
     state.restSeconds = CONFIG.REST_DURATION;
     reply = '好的，休息一下，远眺20秒吧';
     speak(reply);
+    setBubble(reply);
     return;
   }
-  else if (/玩耍|玩|玩一会/.test(text)) {
+  else if (/玩耍|玩|玩一会|玩一下/.test(text)) {
     setMode('play');
     reply = '好的，切换到玩耍模式，注意安全哦';
   }
-  else if (/学习|写作业|看书/.test(text)) {
+  else if (/学习|写作业|看书|做作业/.test(text)) {
     setMode('learn');
     reply = '好的，切换到学习模式，我帮你监督坐姿';
   }
@@ -457,32 +869,74 @@ function handleVoiceCommand(text) {
     setMode('auto');
     reply = '好的，切换到自动模式，我会自己判断哦';
   }
-  else if (/时间|多久|几点/.test(text)) {
+  else if (/时间|多久|几点|学了多久/.test(text)) {
     const mins = Math.floor(state.workSeconds / 60);
     reply = `你已经学习了${mins}分钟啦`;
   }
-  else if (/统计|几次|多少次|警告/.test(text)) {
+  else if (/统计|几次|多少次|警告|提醒/.test(text)) {
     reply = `今天提醒了你${state.badCount}次坐姿，${state.closeCount}次距离`;
   }
-  else if (/再见|拜拜|走了|不说了/.test(text)) {
+  else if (/再见|拜拜|走了|不说了|拜拜了/.test(text)) {
     reply = '再见小主人，记得保护眼睛哦';
   }
+  else if (/开始|启动|开始护眼|开始吧/.test(text)) {
+    if (!state.running) {
+      // 触发开始按钮
+      document.getElementById('startBtn').click();
+      reply = '好的，开始护眼啦，请坐端正让我校准一下';
+    } else {
+      reply = '已经在护眼模式中啦';
+    }
+  }
+  else if (/暂停|停下|停一下|先停/.test(text)) {
+    if (state.running) {
+      document.getElementById('pauseBtn').click();
+      reply = '好的，已暂停';
+    } else {
+      reply = '还没开始呢';
+    }
+  }
   else {
-    reply = `你说的是"${text}"，我还不太懂呢`;
+    // 未匹配到固定指令 → 交给大模型回复
+    if (hasLlmKey()) {
+      handleLlmReply(text);
+      return;
+    }
+    reply = `你说的是"${text}"，我还不太懂呢。可以问我"你能做什么"哦~`;
   }
 
   speak(reply);
   setBubble(reply);
 }
 
+// 调用大模型并播报回复
+async function handleLlmReply(text) {
+  const reply = await askLLM(text);
+  if (reply) {
+    speak(reply);
+    setBubble(reply);
+  } else {
+    const fallback = `你说的是"${text}"，我还不太懂呢。可以问我"你能做什么"哦~`;
+    speak(fallback);
+    setBubble(fallback);
+  }
+}
+
 // 点击对话按钮
 voiceBtn.addEventListener('click', async () => {
   unlockSpeech();
 
+  // 情况1：浏览器不支持语音识别 → 直接用文字输入
+  if (!asrSupported) {
+    speak('这个浏览器不支持语音识别，用文字跟我聊天吧');
+    showTextInput();
+    return;
+  }
+
   if (!recognition) {
     const ok = initVoiceRecognition();
     if (!ok) {
-      speak('当前浏览器不支持语音识别，你可以用文字跟我聊天');
+      speak('这个浏览器不支持语音识别，用文字跟我聊天吧');
       showTextInput();
       return;
     }
@@ -493,27 +947,44 @@ voiceBtn.addEventListener('click', async () => {
     return;
   }
 
+  // 情况2：麦克风权限已知被拒绝 → 直接提示，不弹系统对话框
+  if (micPermission === 'denied') {
+    alert('麦克风权限已被拒绝。\n\n请在浏览器设置中允许麦克风：\n\n' +
+          '方法1：点击地址栏左侧的锁形/盾牌图标 → 麦克风 → 允许\n' +
+          '方法2：浏览器 → 设置 → 隐私 → 麦克风 → 允许本站点\n' +
+          '方法3：鸿蒙 → 设置 → 应用 → 浏览器 → 权限 → 麦克风 → 允许\n\n' +
+          '允许后刷新页面再试。也可以直接用"文字"按钮跟眨眨聊天。');
+    return;
+  }
+
   try {
-    // 关键：先用 getUserMedia 主动请求麦克风权限，触发浏览器授权弹窗
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // 拿到权限后立即关闭 stream（SpeechRecognition 会自己开麦克风）
-    stream.getTracks().forEach(t => t.stop());
+    // 权限未确认时，先用 getUserMedia 触发授权弹窗
+    // 权限已允许时跳过这步，直接启动识别（避免重复弹窗/冲突）
+    if (micPermission !== 'granted') {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop());
+      micPermission = 'granted';
+      updateMicStatus();
+    }
     // 启动语音识别
     recognition.start();
   } catch (err) {
     console.warn('[麦克风] 权限请求失败:', err.name, err.message);
-    let tip = '麦克风权限获取失败。';
+    micPermission = err.name === 'NotAllowedError' ? 'denied' : 'unknown';
+    updateMicStatus();
+    let tip = '';
     if (err.name === 'NotAllowedError' || err.name === 'SecurityError') {
-      tip = '麦克风权限被拒绝。\n\n请在浏览器设置中允许本网站使用麦克风：\n\n' +
-            '方法1：点击地址栏左侧的锁形/盾牌图标 → 找到"麦克风" → 改为"允许"\n' +
-            '方法2：浏览器 → 设置 → 隐私 → 麦克风 → 找到本站点 → 允许\n' +
-            '方法3：鸿蒙浏览器 → 设置 → 网站设置 → 麦克风 → 允许';
+      tip = '麦克风权限被拒绝。\n\n请在浏览器设置中允许麦克风：\n\n' +
+            '方法1：点击地址栏左侧的锁形/盾牌图标 → 麦克风 → 允许\n' +
+            '方法2：浏览器 → 设置 → 隐私 → 麦克风 → 允许本站点\n' +
+            '方法3：鸿蒙 → 设置 → 应用 → 浏览器 → 权限 → 麦克风 → 允许\n\n' +
+            '允许后刷新页面。或直接用"文字"按钮跟眨眨聊天。';
     } else if (err.name === 'NotFoundError') {
-      tip = '未检测到麦克风设备，请确认手机麦克风正常。';
+      tip = '未检测到麦克风设备，请确认手机麦克风正常。\n\n可以用"文字"按钮跟眨眨聊天。';
     } else if (err.name === 'NotReadableError') {
       tip = '麦克风被其他应用占用，请关闭录音类应用后重试。';
     } else {
-      tip = `麦克风异常：${err.name}。请检查浏览器设置中麦克风权限。`;
+      tip = `麦克风异常：${err.name}。\n\n可以用"文字"按钮跟眨眨聊天。`;
     }
     alert(tip);
   }
@@ -556,14 +1027,59 @@ function showTextInput() {
 }
 
 // ============ 声音风格切换 ============
-function cycleVoiceStyle() {
+let voiceStylePanel = null;
+
+function showVoiceStylePanel() {
+  if (voiceStylePanel) {
+    voiceStylePanel.style.display = 'flex';
+    return;
+  }
+  voiceStylePanel = document.createElement('div');
+  voiceStylePanel.className = 'text-input-panel';
   const styles = Object.keys(VOICE_STYLES);
-  const idx = styles.indexOf(currentVoiceStyle);
-  currentVoiceStyle = styles[(idx + 1) % styles.length];
-  const s = VOICE_STYLES[currentVoiceStyle];
+  const btnsHtml = styles.map(key => {
+    const s = VOICE_STYLES[key];
+    const active = key === currentVoiceStyle ? ' active' : '';
+    return `<button class="btn style-btn${active}" data-style="${key}">${s.label}</button>`;
+  }).join('');
+  voiceStylePanel.innerHTML = `
+    <div class="text-input-box">
+      <div class="text-input-title">选个声音吧~</div>
+      <div class="style-grid">${btnsHtml}</div>
+      <div class="text-input-btns">
+        <button class="btn" id="styleCloseBtn">关闭</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(voiceStylePanel);
+
+  voiceStylePanel.querySelectorAll('.style-btn').forEach(btn => {
+    btn.onclick = () => {
+      const key = btn.dataset.style;
+      setVoiceStyle(key);
+      // 关闭面板
+      voiceStylePanel.style.display = 'none';
+    };
+  });
+  document.getElementById('styleCloseBtn').onclick = () => {
+    voiceStylePanel.style.display = 'none';
+  };
+}
+
+function setVoiceStyle(key) {
+  if (!VOICE_STYLES[key]) return;
+  currentVoiceStyle = key;
+  const s = VOICE_STYLES[key];
   speak(`你好，我是眨眨，现在是${s.label}声音`);
   updateVoiceStyleBtn();
+  // 更新面板按钮高亮
+  if (voiceStylePanel) {
+    voiceStylePanel.querySelectorAll('.style-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.style === key);
+    });
+  }
 }
+
 function updateVoiceStyleBtn() {
   const btn = document.getElementById('voiceStyleBtn');
   if (btn) btn.textContent = '🎵 ' + VOICE_STYLES[currentVoiceStyle].label;
@@ -1152,6 +1668,12 @@ document.getElementById('ttsBtn').addEventListener('click', () => {
   ttsDiagnose();
 });
 
+// 麦克风测试按钮
+document.getElementById('micTestBtn').addEventListener('click', () => {
+  unlockSpeech();
+  testMicrophone();
+});
+
 // 文字对话按钮
 document.getElementById('textBtn').addEventListener('click', () => {
   unlockSpeech();
@@ -1161,7 +1683,13 @@ document.getElementById('textBtn').addEventListener('click', () => {
 // 声音风格切换按钮
 document.getElementById('voiceStyleBtn').addEventListener('click', () => {
   unlockSpeech();
-  cycleVoiceStyle();
+  showVoiceStylePanel();
+});
+
+// AI 设置按钮
+document.getElementById('aiSettingsBtn').addEventListener('click', () => {
+  unlockSpeech();
+  showAiSettings();
 });
 
 closeCam.addEventListener('click', () => {

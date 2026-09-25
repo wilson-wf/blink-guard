@@ -1,5 +1,5 @@
-/* 眨眨护眼 PWA Service Worker — v9 儿童声音+文字对话 */
-const CACHE_NAME = 'blink-guard-v9';
+/* 眨眨护眼 PWA Service Worker — v13 多平台大模型（硅基流动免费） */
+const CACHE_NAME = 'blink-guard-v13';
 const ASSETS = [
   './',
   './index.html',
