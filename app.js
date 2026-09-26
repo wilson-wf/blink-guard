@@ -7,7 +7,7 @@
  * 界面：桌宠模式 —— 卡通小怪兽"眨眨"在前台，摄像头在后台检测
  */
 
-// ============ 调试日志面板（拦截 console 输出到页面） ============
+// ============ 调试日志面板（拦截 console 输出到页面 + 推送到 console.re 远程） ============
 (function initDebugPanel() {
   const debugLog = [];
   const MAX_LOGS = 200;
@@ -15,14 +15,22 @@
   const originalWarn = console.warn;
   const originalError = console.error;
 
-  function addToDebugPanel(level, args) {
-    const time = new Date().toLocaleTimeString();
-    const msg = args.map(a => {
+  // console.re 日志缓冲区：connector.js 加载前的日志先缓存，加载完后批量推送
+  const consoleReBuffer = [];
+  const MAX_BUFFER = 300;
+  let consoleReReady = false;
+
+  function argsToMsg(args) {
+    return args.map(a => {
       if (a instanceof Error) return a.message;
       if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
       return String(a);
     }).join(' ');
-    const line = `[${time}] [${level}] ${msg}`;
+  }
+
+  function addToDebugPanel(level, args) {
+    const time = new Date().toLocaleTimeString();
+    const line = `[${time}] [${level}] ${argsToMsg(args)}`;
     debugLog.push(line);
     if (debugLog.length > MAX_LOGS) debugLog.shift();
     const panel = document.getElementById('debugLog');
@@ -32,21 +40,52 @@
     }
   }
 
-  // 把日志同时推送到 console.re 远程服务器（如果已加载）
+  // 把日志推送到 console.re 远程服务器
   function pushToConsoleRe(level, args) {
     try {
-      if (window.console && window.console.re && typeof window.console.re.log === 'function') {
-        const msg = args.map(a => {
-          if (a instanceof Error) return a.message;
-          if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
-          return String(a);
-        }).join(' ');
-        if (level === 'WARN' && window.console.re.warn) window.console.re.warn(msg);
-        else if (level === 'ERROR' && window.console.re.error) window.console.re.error(msg);
-        else window.console.re.log(msg);
+      const msg = argsToMsg(args);
+      const re = window.console && window.console.re;
+      const canSend = re && typeof re.log === 'function';
+      if (!canSend) {
+        // connector.js 还没加载好，先缓存
+        consoleReBuffer.push({ level, msg });
+        if (consoleReBuffer.length > MAX_BUFFER) consoleReBuffer.shift();
+        return;
       }
+      // 可用 → 先把缓冲区里积压的日志全部推送（按时间顺序）
+      if (consoleReBuffer.length) {
+        const batch = consoleReBuffer.splice(0, consoleReBuffer.length);
+        for (const item of batch) {
+          if (item.level === 'WARN' && re.warn) re.warn(item.msg);
+          else if (item.level === 'ERROR' && re.error) re.error(item.msg);
+          else re.log(item.msg);
+        }
+      }
+      // 推送当前这条
+      if (level === 'WARN' && re.warn) re.warn(msg);
+      else if (level === 'ERROR' && re.error) re.error(msg);
+      else re.log(msg);
     } catch(e) { /* 忽略推送失败 */ }
   }
+
+  // 轮询检测 console.re connector.js 是否加载完成，加载完后把缓冲区日志推送出去
+  function checkConsoleReReady() {
+    const re = window.console && window.console.re;
+    if (re && typeof re.log === 'function') {
+      if (!consoleReReady) {
+        consoleReReady = true;
+        // 触发一次日志推送，把缓冲区刷出去
+        console.log('[Debug] console.re 已连接，远程日志开始推送');
+      }
+    }
+  }
+  // 每 500ms 检测一次，最多检测 30 秒
+  let _checkCount = 0;
+  const _checkTimer = setInterval(() => {
+    checkConsoleReReady();
+    _checkCount++;
+    if (_checkCount > 60 || consoleReReady) clearInterval(_checkTimer);
+  }, 500);
 
   console.log = function(...args) { addToDebugPanel('LOG', args); pushToConsoleRe('LOG', args); originalLog.apply(console, args); };
   console.warn = function(...args) { addToDebugPanel('WARN', args); pushToConsoleRe('WARN', args); originalWarn.apply(console, args); };
@@ -66,7 +105,7 @@
 })();
 
 // ============ 环境信息日志（方便远程诊断） ============
-// 等 connector.js 加载完再推送（console.re SDK 是异步加载的）
+// 日志缓冲区机制保证：即使 connector.js 还没加载完，环境信息也会被缓存，加载后自动推送
 function logEnv() {
   console.log('[Env] UA:', navigator.userAgent);
   console.log('[Env] 平台:', navigator.platform);
@@ -77,9 +116,6 @@ function logEnv() {
   console.log('[Env] isSecureContext:', window.isSecureContext);
 }
 logEnv();
-// connector.js 加载有延迟，2 秒后再推一次确保远程能收到
-setTimeout(logEnv, 2000);
-setTimeout(logEnv, 5000);
 
 // ============ Supabase 用户登录与云端配置同步 ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
