@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v31 修复 Whisper 模型加载：remotePathTemplate 用默认值 */
-const CACHE_NAME = 'blink-guard-v31';
+/* 眨眨护眼 PWA Service Worker — v32 修复 Whisper 模型加载：显式设置 remotePathTemplate 为 {model}/resolve/{revision}/ */
+const CACHE_NAME = 'blink-guard-v32';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=31',
+  './app.js?v=32',
   './manifest.json',
 ];
 
