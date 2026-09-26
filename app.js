@@ -32,9 +32,25 @@
     }
   }
 
-  console.log = function(...args) { addToDebugPanel('LOG', args); originalLog.apply(console, args); };
-  console.warn = function(...args) { addToDebugPanel('WARN', args); originalWarn.apply(console, args); };
-  console.error = function(...args) { addToDebugPanel('ERROR', args); originalError.apply(console, args); };
+  // 把日志同时推送到 console.re 远程服务器（如果已加载）
+  function pushToConsoleRe(level, args) {
+    try {
+      if (window.console && window.console.re && typeof window.console.re.log === 'function') {
+        const msg = args.map(a => {
+          if (a instanceof Error) return a.message;
+          if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+          return String(a);
+        }).join(' ');
+        if (level === 'WARN' && window.console.re.warn) window.console.re.warn(msg);
+        else if (level === 'ERROR' && window.console.re.error) window.console.re.error(msg);
+        else window.console.re.log(msg);
+      }
+    } catch(e) { /* 忽略推送失败 */ }
+  }
+
+  console.log = function(...args) { addToDebugPanel('LOG', args); pushToConsoleRe('LOG', args); originalLog.apply(console, args); };
+  console.warn = function(...args) { addToDebugPanel('WARN', args); pushToConsoleRe('WARN', args); originalWarn.apply(console, args); };
+  console.error = function(...args) { addToDebugPanel('ERROR', args); pushToConsoleRe('ERROR', args); originalError.apply(console, args); };
 
   window.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('debugBtn');
@@ -50,13 +66,20 @@
 })();
 
 // ============ 环境信息日志（方便远程诊断） ============
-console.log('[Env] UA:', navigator.userAgent);
-console.log('[Env] 平台:', navigator.platform);
-console.log('[Env] 语言:', navigator.language);
-console.log('[Env] SpeechRecognition:', !!(window.SpeechRecognition || window.webkitSpeechRecognition) ? '支持' : '不支持');
-console.log('[Env] speechSynthesis:', 'speechSynthesis' in window ? '支持' : '不支持');
-console.log('[Env] getUserMedia:', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? '支持' : '不支持');
-console.log('[Env] isSecureContext:', window.isSecureContext);
+// 等 connector.js 加载完再推送（console.re SDK 是异步加载的）
+function logEnv() {
+  console.log('[Env] UA:', navigator.userAgent);
+  console.log('[Env] 平台:', navigator.platform);
+  console.log('[Env] 语言:', navigator.language);
+  console.log('[Env] SpeechRecognition:', !!(window.SpeechRecognition || window.webkitSpeechRecognition) ? '支持' : '不支持');
+  console.log('[Env] speechSynthesis:', 'speechSynthesis' in window ? '支持' : '不支持');
+  console.log('[Env] getUserMedia:', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? '支持' : '不支持');
+  console.log('[Env] isSecureContext:', window.isSecureContext);
+}
+logEnv();
+// connector.js 加载有延迟，2 秒后再推一次确保远程能收到
+setTimeout(logEnv, 2000);
+setTimeout(logEnv, 5000);
 
 // ============ Supabase 用户登录与云端配置同步 ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';

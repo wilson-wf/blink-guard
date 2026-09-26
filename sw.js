@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v22 修复语音识别启动超时降级 */
-const CACHE_NAME = 'blink-guard-v22';
+/* 眨眨护眼 PWA Service Worker — v23 console.re 远程日志同步 */
+const CACHE_NAME = 'blink-guard-v23';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=22',
+  './app.js?v=23',
   './manifest.json',
 ];
 
