@@ -774,8 +774,8 @@ async function loadWhisperModel() {
     env.allowLocalModels = false;
     env.useBrowserCache = true;
     // 使用国内镜像加速模型下载（HuggingFace 国内访问慢）
+    // 注意：只设置 remoteHost，remotePathTemplate 用默认值 {model}/resolve/{revision}/
     env.remoteHost = 'https://hf-mirror.com';
-    env.remotePathTemplate = '{model}/resolve/{revision}/{file}';
     whisperPipe = await pipeline('automatic-speech-recognition', WHISPER_MODEL, {
       progress_callback: (p) => {
         if (p.status === 'progress') {
