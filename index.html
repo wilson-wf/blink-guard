@@ -17,6 +17,7 @@
       <span class="title">👁 眨眨 · AI护眼小怪兽</span>
       <div class="voice-status" id="voiceStatus">🔊 语音检测中…</div>
       <div class="voice-status" id="micStatus">🎤 检测中…</div>
+      <button id="dressupBtn" class="install-btn" style="background:#FF9800;">🎨 打扮</button>
       <button id="loginBtn" class="install-btn" style="background:#4CAF50;">👤 登录</button>
       <button id="installBtn" class="install-btn" style="display:none;">安装</button>
     </header>
@@ -30,7 +31,11 @@
 
       <!-- 卡通眨眨（SVG） -->
       <div id="pet" class="pet" title="点我打个招呼">
+        <!-- AI 生成的图片（默认隐藏） -->
+        <img id="petImage" src="" alt="眨眨" style="display:none;width:100%;height:100%;object-fit:contain;"/>
         <svg viewBox="0 0 200 220" width="100%" height="100%">
+          <!-- 装饰层（皇冠/光环/天线等，由 JS 动态填充） -->
+          <g id="decorLayer"></g>
           <!-- 身体 -->
           <ellipse id="body" cx="100" cy="130" rx="70" ry="75" fill="#4FC3F7"/>
           <!-- 肚子 -->
@@ -145,6 +150,39 @@
     </footer>
   </div>
 
+  <!-- 眨眨打扮面板 -->
+  <div id="dressupPanel" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:9999;overflow:auto;padding:16px;">
+    <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span style="font-size:18px;font-weight:bold;">🎨 打扮眨眨</span>
+        <button id="dressupCloseBtn" style="background:#f44336;color:#fff;border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:18px;">×</button>
+      </div>
+
+      <p style="font-size:13px;color:#666;margin:0 0 12px;">点下面任意预设一键变身，或用语音说"变成恐龙"、"画一个穿披风的小怪兽"</p>
+
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px;">预设造型（一键切换）</div>
+      <div id="presetGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;"></div>
+
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px;">自定义颜色</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <label style="font-size:12px;">身体 <input type="color" id="bodyColor" value="#4FC3F7" style="width:50px;height:32px;"/></label>
+        <label style="font-size:12px;">肚子 <input type="color" id="bellyColor" value="#B3E5FC" style="width:50px;height:32px;"/></label>
+        <label style="font-size:12px;">犄角 <input type="color" id="hornColor" value="#29B6F6" style="width:50px;height:32px;"/></label>
+        <button id="applyCustomBtn" style="flex:1;min-width:80px;background:#2196F3;color:#fff;border:none;border-radius:4px;padding:8px;cursor:pointer;">应用</button>
+      </div>
+
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px;">装饰元素</div>
+      <div id="decorBtns" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;"></div>
+
+      <div style="font-size:14px;font-weight:bold;margin-bottom:8px;">AI 画图（可选）</div>
+      <p style="font-size:12px;color:#666;margin:0 0 8px;">填入豆包/Seedream 文生图 API Key 后，说"画一个 X 的眨眨"会用 AI 真画出图</p>
+      <input type="password" id="imgKeyInput" placeholder="图片生成 API Key（可选）" style="width:100%;padding:8px;margin-bottom:8px;border:1px solid #ccc;border-radius:4px;"/>
+      <button id="saveImgKeyBtn" style="width:100%;background:#FF9800;color:#fff;border:none;border-radius:4px;padding:10px;cursor:pointer;">保存图片 API Key</button>
+
+      <button id="resetPetBtn" style="width:100%;margin-top:12px;background:#9e9e9e;color:#fff;border:none;border-radius:4px;padding:10px;cursor:pointer;">恢复默认眨眨</button>
+    </div>
+  </div>
+
   <!-- 调试日志面板 -->
   <button id="debugBtn" style="position:fixed;bottom:8px;right:8px;z-index:9999;background:#333;color:#0f0;border:none;border-radius:50%;width:36px;height:36px;font-size:14px;cursor:pointer;opacity:0.6;">🐞</button>
   <div id="debugPanel" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);z-index:10000;overflow:auto;padding:12px;font-family:monospace;font-size:11px;color:#0f0;">
@@ -169,6 +207,6 @@
   <script src="https://console.re/connector.js"></script>
   <!-- Supabase 客户端 SDK（用户登录 + 云端配置同步） -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=23"></script>
+  <script src="app.js?v=24"></script>
 </body>
 </html>

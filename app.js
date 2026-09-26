@@ -941,6 +941,7 @@ function saveUserSettingsToCloud() {
           llm_provider: getLlmProvider(),
           llm_model: getLlmModel(),
           llm_key: getLlmKey(),
+          pet_config: getPetConfig(),
           updated_at: new Date().toISOString(),
         }, { onConflict: 'id' });
       if (error) console.warn('[Cloud] 同步失败:', error.message);
@@ -956,29 +957,265 @@ async function loadUserSettingsFromCloud() {
   try {
     const { data, error } = await supabaseClient
       .from('user_settings')
-      .select('llm_provider, llm_model, llm_key')
+      .select('llm_provider, llm_model, llm_key, pet_config')
       .eq('id', currentUser.id)
       .maybeSingle();
     if (error) {
       console.warn('[Cloud] 拉取配置失败:', error.message);
       return;
     }
-    if (data && (data.llm_key || data.llm_provider || data.llm_model)) {
+    if (data && (data.llm_key || data.llm_provider || data.llm_model || data.pet_config)) {
       console.log('[Cloud] 从云端恢复配置');
       if (data.llm_provider) localStorage.setItem('blink_llm_provider', data.llm_provider);
       if (data.llm_model) localStorage.setItem('blink_llm_model', data.llm_model);
       if (data.llm_key) localStorage.setItem('blink_llm_key', data.llm_key);
+      if (data.pet_config) {
+        localStorage.setItem('blink_pet_config', JSON.stringify(data.pet_config));
+        applyPetConfig(data.pet_config);
+      }
       return true;
     } else {
       console.log('[Cloud] 云端无配置，使用本地配置并上传');
       // 把本地已有配置上传一次
-      if (getLlmKey()) saveUserSettingsToCloud();
+      if (getLlmKey() || getPetConfig()) saveUserSettingsToCloud();
       return false;
     }
   } catch (e) {
     console.warn('[Cloud] 拉取异常:', e.message);
     return false;
   }
+}
+
+// ============ 眨眨打扮系统（SVG 参数化变身 + AI 图片生成） ============
+
+// 预设风格库：8 种小朋友喜欢的造型
+const PET_PRESETS = {
+  default:  { name: '🐾 原版眨眨', body: '#4FC3F7', belly: '#B3E5FC', horn: '#29B6F6', decor: 'none',    mouth: 'smile' },
+  dinosaur: { name: '🦖 小恐龙',   body: '#66BB6A', belly: '#C5E1A5', horn: '#2E7D32', decor: 'spikes',  mouth: 'tooth' },
+  princess: { name: '👸 小公主',   body: '#F48FB1', belly: '#FCE4EC', horn: '#EC407A', decor: 'crown',   mouth: 'smile' },
+  astronaut:{ name: '🚀 宇航员',   body: '#ECEFF1', belly: '#CFD8DC', horn: '#90A4AE', decor: 'helmet',  mouth: 'smile' },
+  panda:    { name: '🐼 熊猫',     body: '#FFFFFF', belly: '#FFFFFF', horn: '#000000', decor: 'panda',   mouth: 'smile' },
+  robot:    { name: '🤖 机器人',   body: '#90A4AE', belly: '#CFD8DC', horn: '#37474F', decor: 'antenna', mouth: 'rect'   },
+  hero:     { name: '🦸 超人',     body: '#EF5350', belly: '#FFCDD2', horn: '#B71C1C', decor: 'cape',    mouth: 'smile' },
+  devil:    { name: '😈 小恶魔',   body: '#7E57C2', belly: '#D1C4E9', horn: '#311B92', decor: 'pitchfork',mouth: 'tooth' },
+  angel:    { name: '😇 小天使',   body: '#FFD54F', belly: '#FFF8E1', horn: '#FFA000', decor: 'halo',    mouth: 'smile' },
+};
+
+function getPetConfig() {
+  try {
+    const s = localStorage.getItem('blink_pet_config');
+    return s ? JSON.parse(s) : PET_PRESETS.default;
+  } catch (e) { return PET_PRESETS.default; }
+}
+
+function setPetConfig(cfg) {
+  localStorage.setItem('blink_pet_config', JSON.stringify(cfg));
+  applyPetConfig(cfg);
+  saveUserSettingsToCloud();  // 自动同步到云端
+}
+
+// 把配置应用到 SVG
+function applyPetConfig(cfg) {
+  if (!cfg) cfg = PET_PRESETS.default;
+  const body = document.getElementById('body');
+  const horn1 = document.querySelector('#pet path[fill="#29B6F6"]');
+  const horn2 = document.querySelectorAll('#pet path[fill="#29B6F6"]')[1];
+  const belly = document.querySelector('#pet ellipse[fill="#B3E5FC"]');
+  const mouth = document.getElementById('mouth');
+
+  if (body) body.setAttribute('fill', cfg.body || '#4FC3F7');
+  if (belly) belly.setAttribute('fill', cfg.belly || '#B3E5FC');
+  if (horn1) horn1.setAttribute('fill', cfg.horn || '#29B6F6');
+  if (horn2) horn2.setAttribute('fill', cfg.horn || '#29B6F6');
+
+  // 嘴巴样式
+  if (mouth) {
+    if (cfg.mouth === 'tooth') {
+      mouth.setAttribute('d', 'M80 150 L88 158 L96 150 L104 158 L112 150 L120 158');
+      mouth.setAttribute('stroke', '#01579B');
+    } else if (cfg.mouth === 'rect') {
+      mouth.setAttribute('d', 'M82 152 L118 152 L118 158 L82 158 Z');
+      mouth.setAttribute('stroke', '#263238');
+    } else {
+      mouth.setAttribute('d', 'M80 150 Q100 168 120 150');
+      mouth.setAttribute('stroke', '#01579B');
+    }
+    mouth.setAttribute('stroke-width', '4');
+    mouth.setAttribute('stroke-linecap', 'round');
+    mouth.setAttribute('fill', 'none');
+  }
+
+  // 装饰元素：先清掉旧的，再加新的
+  const decorLayer = document.getElementById('decorLayer');
+  if (decorLayer) decorLayer.innerHTML = renderDecor(cfg.decor || 'none');
+
+  // 如果是 AI 图片模式，切换显示
+  const svgEl = document.querySelector('#pet svg');
+  const petImg = document.getElementById('petImage');
+  if (cfg.imageDataUrl) {
+    if (svgEl) svgEl.style.display = 'none';
+    if (petImg) {
+      petImg.src = cfg.imageDataUrl;
+      petImg.style.display = 'block';
+    }
+  } else {
+    if (svgEl) svgEl.style.display = 'block';
+    if (petImg) petImg.style.display = 'none';
+  }
+}
+
+// 渲染装饰元素 SVG
+function renderDecor(type) {
+  switch (type) {
+    case 'crown':
+      return '<path d="M70 60 L80 40 L90 55 L100 35 L110 55 L120 40 L130 60 Z" fill="#FFD700" stroke="#FFA000" stroke-width="2"/>' +
+             '<circle cx="100" cy="42" r="4" fill="#FF5252"/>';
+    case 'halo':
+      return '<ellipse cx="100" cy="32" rx="32" ry="6" fill="none" stroke="#FFD700" stroke-width="3"/>' +
+             '<ellipse cx="100" cy="32" rx="32" ry="6" fill="none" stroke="#FFF59D" stroke-width="1" opacity="0.8"/>';
+    case 'spikes':
+      return '<path d="M50 80 L40 50 L55 70 L45 40 L65 65 L60 35 L75 60 L80 30 L85 60 L100 25 L105 60 L120 30 L125 60 L135 35 L140 65 L155 40 L150 70 L165 50 L160 80 Z" fill="#2E7D32" opacity="0.8"/>';
+    case 'antenna':
+      return '<line x1="100" y1="55" x2="100" y2="20" stroke="#37474F" stroke-width="3"/>' +
+             '<circle cx="100" cy="18" r="6" fill="#F44336"/>';
+    case 'cape':
+      return '<path d="M40 110 Q20 140 30 200 L100 195 L170 200 Q180 140 160 110 Z" fill="#B71C1C" opacity="0.85"/>' +
+             '<text x="100" y="160" font-size="20" fill="#FFD700" text-anchor="middle" font-weight="bold">Z</text>';
+    case 'pitchfork':
+      return '<line x1="180" y1="80" x2="160" y2="130" stroke="#311B92" stroke-width="3"/>' +
+             '<path d="M175 75 L185 75 L182 65 L178 65 Z M173 80 L187 80" stroke="#311B92" stroke-width="2" fill="none"/>';
+    case 'helmet':
+      return '<path d="M55 100 Q100 50 145 100 L145 130 L55 130 Z" fill="rgba(255,255,255,0.4)" stroke="#90A4AE" stroke-width="2"/>' +
+             '<rect x="60" y="105" width="80" height="12" fill="rgba(200,230,255,0.6)" stroke="#0288D1" stroke-width="1"/>';
+    case 'panda':
+      // 黑眼圈
+      return '<ellipse cx="75" cy="110" rx="20" ry="14" fill="#000"/>' +
+             '<ellipse cx="125" cy="110" rx="20" ry="14" fill="#000"/>';
+    default:
+      return '';
+  }
+}
+
+// 应用预设
+function applyPreset(key) {
+  const p = PET_PRESETS[key];
+  if (!p) return;
+  const cfg = { ...p, decor: p.decor, imageDataUrl: null };  // 预设清掉 AI 图片
+  delete cfg.name;
+  setPetConfig(cfg);
+  setBubble('我变身成 ' + p.name + ' 啦！');
+  speak('我变身成' + p.name.replace(/^[^\u4e00-\u9fa5a-zA-Z0-9]+/, '') + '啦！');
+  console.log('[Pet] 切换预设:', key);
+}
+
+// AI 生成眨眨图片（基于语音/文字描述）
+async function generatePetImage(desc) {
+  if (!desc || desc.length < 2) {
+    setBubble('要告诉我你想把我变成什么样子哦~');
+    return;
+  }
+  setBubble('正在画 ' + desc + ' 的眨眨…（约10-20秒）');
+  speak('好的，我正在画' + desc + '的眨眨，稍等一下哦');
+
+  try {
+    // 优先使用 Seedream/Doubao 文生图 API（用户需在设置里填图片 API Key）
+    const imgKey = localStorage.getItem('blink_img_key') || '';
+    if (imgKey) {
+      const resp = await fetch('https://ark.cn-beijing.volces.com/api/v3/images/generations', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + imgKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'doubao-seedream-3-0-t2i-250415',
+          prompt: '一只可爱的卡通小怪兽"眨眨"，圆滚滚的身体，大眼睛，' + desc + '，儿童画风格，色彩明亮',
+          size: '512x512',
+          response_format: 'b64_json',
+        }),
+      });
+      const data = await resp.json();
+      if (data.data && data.data[0] && data.data[0].b64_json) {
+        const url = 'data:image/png;base64,' + data.data[0].b64_json;
+        const cfg = { ...getPetConfig(), imageDataUrl: url, imageDesc: desc };
+        setPetConfig(cfg);
+        setBubble('画好啦！这是我变身成 ' + desc + ' 的样子~');
+        speak('画好啦，看看我变成' + desc + '的样子吧');
+        return;
+      }
+      throw new Error(data.error?.message || '图片生成失败');
+    }
+
+    // 没有 API Key 时，降级到 SVG 颜色推断
+    setBubble('还没有配置图片生成 API，我先按你的描述调个颜色~');
+    const cfg = inferPetConfigFromText(desc);
+    setPetConfig(cfg);
+    setBubble('我按"' + desc + '"调了颜色和装饰~ 配置图片 API 可以画得更像哦');
+  } catch (e) {
+    console.error('[Pet] AI 图片生成失败:', e);
+    setBubble('画图失败了：' + e.message + '，先用颜色变身~');
+    const cfg = inferPetConfigFromText(desc);
+    setPetConfig(cfg);
+  }
+}
+
+// 文本描述 → SVG 配置推断（关键词匹配，无 AI 时的兜底）
+function inferPetConfigFromText(text) {
+  const t = text.toLowerCase();
+  // 找匹配的预设关键词
+  const keywordMap = [
+    { kw: ['恐龙', 'dino', '霸王龙'], preset: 'dinosaur' },
+    { kw: ['公主', 'princess', '粉红'], preset: 'princess' },
+    { kw: ['宇航', '太空', '火箭', 'space'], preset: 'astronaut' },
+    { kw: ['熊猫', 'panda'], preset: 'panda' },
+    { kw: ['机器人', 'robot', '机械'], preset: 'robot' },
+    { kw: ['超人', 'hero', '超级'], preset: 'hero' },
+    { kw: ['恶魔', 'devil', '坏'], preset: 'devil' },
+    { kw: ['天使', 'angel', '神仙'], preset: 'angel' },
+  ];
+  for (const m of keywordMap) {
+    if (m.kw.some(k => t.includes(k))) {
+      const p = PET_PRESETS[m.preset];
+      return { body: p.body, belly: p.belly, horn: p.horn, decor: p.decor, mouth: p.mouth, imageDataUrl: null };
+    }
+  }
+  // 没匹配预设 → 按颜色词推断
+  const colorMap = { 红:'#EF5350', 橙:'#FF9800', 黄:'#FFD54F', 绿:'#66BB6A', 青:'#26C6DA', 蓝:'#42A5F5', 紫:'#7E57C2', 粉:'#F48FB1', 黑:'#37474F', 白:'#ECEFF1', 金:'#FFD700', 银:'#B0BEC5' };
+  for (const [c, hex] of Object.entries(colorMap)) {
+    if (t.includes(c)) {
+      return { body: hex, belly: '#FFFFFF', horn: hex, decor: 'none', mouth: 'smile', imageDataUrl: null };
+    }
+  }
+  return { body: '#4FC3F7', belly: '#B3E5FC', horn: '#29B6F6', decor: 'none', mouth: 'smile', imageDataUrl: null };
+}
+
+// 处理语音/文字中的"变身/打扮/变成"指令
+function handlePetCommand(text) {
+  const t = text.toLowerCase();
+  // "变成 X" "变身成 X" "打扮成 X" "画一个 X"
+  const m = t.match(/(?:变成|变身成|打扮成|画一个|画只|画个|装扮成)([\u4e00-\u9fa5a-zA-Z0-9\s]{1,15})/);
+  if (m) {
+    const desc = m[1].trim();
+    // 含"画"字 → 走 AI 图片
+    if (t.includes('画')) {
+      generatePetImage(desc);
+    } else {
+      const cfg = inferPetConfigFromText(desc);
+      setPetConfig(cfg);
+      setBubble('我变身成 ' + desc + ' 啦！');
+      speak('好的，我变身成' + desc + '啦');
+    }
+    return true;
+  }
+  // 直接说预设名
+  for (const [key, p] of Object.entries(PET_PRESETS)) {
+    if (key === 'default') continue;
+    if (t.includes(p.name.replace(/^[^\u4e00-\u9fa5a-zA-Z0-9]+/, '').slice(0, 2))) {
+      applyPreset(key);
+      return true;
+    }
+  }
+  return false;
 }
 
 // 调用大模型获取回复
@@ -1331,6 +1568,8 @@ function handleVoiceCommand(text) {
     }
   }
   else {
+    // 先检查是否是眨眨变身指令（变成/打扮/画一个）
+    if (handlePetCommand(text)) return;
     // 未匹配到固定指令 → 交给大模型回复
     if (hasLlmKey()) {
       handleLlmReply(text);
@@ -2137,6 +2376,109 @@ document.getElementById('voiceStyleBtn').addEventListener('click', () => {
 document.getElementById('aiSettingsBtn').addEventListener('click', () => {
   unlockSpeech();
   showAiSettings();
+});
+
+// ============ 打扮面板事件绑定 ============
+const decorOptions = [
+  { key: 'none',      label: '无' },
+  { key: 'crown',     label: '👑 皇冠' },
+  { key: 'halo',      label: '😇 光环' },
+  { key: 'spikes',    label: '🦖 背刺' },
+  { key: 'antenna',   label: '🤖 天线' },
+  { key: 'cape',      label: '🦸 披风' },
+  { key: 'pitchfork', label: '😈 三叉戟' },
+  { key: 'helmet',    label: '🚀 头盔' },
+  { key: 'panda',     label: '🐼 黑眼圈' },
+];
+
+// 初始化打扮面板
+function initDressupPanel() {
+  // 预设按钮
+  const grid = document.getElementById('presetGrid');
+  if (grid) {
+    grid.innerHTML = '';
+    Object.entries(PET_PRESETS).forEach(([key, p]) => {
+      const btn = document.createElement('button');
+      btn.textContent = p.name;
+      btn.style.cssText = 'padding:10px 4px;border:1px solid #ddd;background:' + p.body + ';color:' + (p.body === '#FFFFFF' || p.body === '#FFD54F' ? '#333' : '#fff') + ';border-radius:8px;cursor:pointer;font-size:13px;';
+      btn.onclick = () => applyPreset(key);
+      grid.appendChild(btn);
+    });
+  }
+
+  // 装饰按钮
+  const decorBtns = document.getElementById('decorBtns');
+  if (decorBtns) {
+    decorBtns.innerHTML = '';
+    decorOptions.forEach(d => {
+      const btn = document.createElement('button');
+      btn.textContent = d.label;
+      btn.style.cssText = 'padding:6px 10px;border:1px solid #ddd;background:#f5f5f5;color:#333;border-radius:4px;cursor:pointer;font-size:12px;';
+      btn.onclick = () => {
+        const cfg = { ...getPetConfig(), decor: d.key, imageDataUrl: null };
+        setPetConfig(cfg);
+        setBubble('装饰切换为：' + d.label);
+      };
+      decorBtns.appendChild(btn);
+    });
+  }
+
+  // 自定义颜色应用
+  const applyBtn = document.getElementById('applyCustomBtn');
+  if (applyBtn) {
+    applyBtn.onclick = () => {
+      const cfg = {
+        body: document.getElementById('bodyColor').value,
+        belly: document.getElementById('bellyColor').value,
+        horn: document.getElementById('hornColor').value,
+        decor: getPetConfig().decor || 'none',
+        mouth: getPetConfig().mouth || 'smile',
+        imageDataUrl: null,
+      };
+      setPetConfig(cfg);
+      setBubble('颜色换好啦！');
+    };
+  }
+
+  // 保存图片 API Key
+  const saveImgBtn = document.getElementById('saveImgKeyBtn');
+  if (saveImgBtn) {
+    saveImgBtn.onclick = () => {
+      const v = document.getElementById('imgKeyInput').value.trim();
+      if (v) {
+        localStorage.setItem('blink_img_key', v);
+        saveImgBtn.textContent = '已保存 ✓';
+        saveImgBtn.style.background = '#4CAF50';
+        setTimeout(() => { saveImgBtn.textContent = '保存图片 API Key'; saveImgBtn.style.background = '#FF9800'; }, 1500);
+      }
+    };
+    // 已有的 key 回填
+    const existing = localStorage.getItem('blink_img_key');
+    if (existing) document.getElementById('imgKeyInput').value = existing;
+  }
+
+  // 恢复默认
+  const resetBtn = document.getElementById('resetPetBtn');
+  if (resetBtn) {
+    resetBtn.onclick = () => {
+      applyPreset('default');
+      document.getElementById('dressupPanel').style.display = 'none';
+    };
+  }
+}
+
+document.getElementById('dressupBtn').addEventListener('click', () => {
+  unlockSpeech();
+  initDressupPanel();
+  document.getElementById('dressupPanel').style.display = 'block';
+});
+document.getElementById('dressupCloseBtn').addEventListener('click', () => {
+  document.getElementById('dressupPanel').style.display = 'none';
+});
+
+// 页面加载完应用保存的眨眨配置
+window.addEventListener('DOMContentLoaded', () => {
+  applyPetConfig(getPetConfig());
 });
 
 closeCam.addEventListener('click', () => {
