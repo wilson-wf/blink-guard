@@ -7,6 +7,9 @@
  * 界面：桌宠模式 —— 卡通小怪兽"眨眨"在前台，摄像头在后台检测
  */
 
+// ============ 应用版本号（页面标题旁显示，方便确认是否最新版） ============
+const APP_VERSION = 'v34';
+
 // ============ Supabase 配置（放在最前，供日志推送等模块使用） ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_F1qdhcIQgN78C7QdXEqN8Q_IU7E55rY';
@@ -2704,6 +2707,11 @@ if (isStandalone()) {
 }
 
 // ============ 初始化 ============
+// 更新页面版本号显示
+const versionTag = document.getElementById('versionTag');
+if (versionTag) versionTag.textContent = APP_VERSION;
+console.log('[App] 版本:', APP_VERSION);
+
 renderLogs();
 setPetState('gray', '你好呀，我是眨眨~点"开始护眼"吧', '等待启动');
 

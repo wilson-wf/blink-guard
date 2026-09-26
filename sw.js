@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v33 修复安装按钮：适配鸿蒙/iOS 显示手动安装指引 */
-const CACHE_NAME = 'blink-guard-v33';
+/* 眨眨护眼 PWA Service Worker — v34 页面显示版本号 */
+const CACHE_NAME = 'blink-guard-v34';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=33',
+  './app.js?v=34',
   './manifest.json',
 ];
 
