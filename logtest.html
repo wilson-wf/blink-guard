@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>console.re 屏蔽测试</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f5f5f5; }
+    .box { background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    button { background: #2196F3; color: #fff; border: none; padding: 12px 20px; border-radius: 4px; font-size: 16px; width: 100%; margin: 6px 0; cursor: pointer; }
+    button:active { background: #1976D2; }
+    #result { white-space: pre-wrap; word-break: break-all; font-family: monospace; font-size: 13px; line-height: 1.6; min-height: 200px; }
+    .ok { color: #4CAF50; }
+    .fail { color: #f44336; }
+    .info { color: #2196F3; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>console.re 屏蔽测试</h1>
+    <p style="font-size:13px;color:#666;">点击下方按钮，看 console.re 脚本能否加载并发送日志。</p>
+    <button id="loadBtn">1. 加载 console.re 脚本</button>
+    <button id="sendBtn" disabled>2. 发送测试日志</button>
+  </div>
+  <div class="box">
+    <div id="result">等待测试…</div>
+  </div>
+
+  <script>
+    var logArea = document.getElementById('result');
+    function log(msg, type) {
+      var cls = type || 'info';
+      var time = new Date().toLocaleTimeString();
+      logArea.innerHTML += '<div class="' + cls + '">[' + time + '] ' + msg + '</div>';
+      logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    document.getElementById('loadBtn').addEventListener('click', function() {
+      log('开始加载 console.re 脚本…');
+      var start = Date.now();
+
+      window.console = window.console || {};
+      console.re = { channel: 'blink-guard-2026', showInPage: false };
+
+      var s = document.createElement('script');
+      s.src = 'https://console.re/connector.js';
+      s.onload = function() {
+        var elapsed = Date.now() - start;
+        log('✅ connector.js 加载成功，耗时 ' + elapsed + 'ms', 'ok');
+        if (typeof console.re !== 'undefined' && console.re.log) {
+          log('console.re 客户端就绪，频道: blink-guard-2026', 'ok');
+          document.getElementById('sendBtn').disabled = false;
+        } else {
+          log('⚠️ 脚本加载但 console.re 客户端不可用', 'fail');
+        }
+      };
+      s.onerror = function() {
+        log('❌ connector.js 加载失败——console.re 域名被屏蔽或网络问题', 'fail');
+      };
+      document.head.appendChild(s);
+    });
+
+    document.getElementById('sendBtn').addEventListener('click', function() {
+      try {
+        console.re.log('测试日志 from 手机端 @ ' + new Date().toISOString());
+        console.re.info('这是一条 info 级别日志');
+        console.re.warn('这是一条 warn 级别日志');
+        console.re.error('这是一条 error 级别日志');
+        log('已发送 4 条日志到频道 blink-guard-2026，请到 https://console.re/blink-guard-2026 查看', 'ok');
+      } catch (e) {
+        log('❌ 发送失败: ' + e.message, 'fail');
+      }
+    });
+
+    log('页面已加载，点击上方按钮开始测试', 'info');
+  </script>
+</body>
+</html>
