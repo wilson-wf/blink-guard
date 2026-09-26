@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v24 眨眨打扮变身系统 */
-const CACHE_NAME = 'blink-guard-v24';
+/* 眨眨护眼 PWA Service Worker — v25 性能优化（外部脚本异步化 + MediaPipe 懒加载） */
+const CACHE_NAME = 'blink-guard-v25';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=24',
+  './app.js?v=25',
   './manifest.json',
 ];
 

@@ -196,17 +196,23 @@
     <div id="debugLog" style="white-space:pre-wrap;word-break:break-all;line-height:1.5;"></div>
   </div>
 
-  <!-- MediaPipe Pose（人体姿态检测，正面/侧面/背面均可用） -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <!-- 远程调试日志：日志自动推送到 console.re，开发者可远程查看 -->
+  <!-- 远程调试日志：先声明频道，连接延迟到 onload 之后，避免阻塞首屏 -->
   <script>
     window.console = window.console || {};
-    console.re = { channel: 'blink-guard-2026', showInPage: true };
+    console.re = { channel: 'blink-guard-2026', showInPage: true, ready: false };
+    // console.re 的 connector.js 改为页面加载完之后再加载，避免拖慢首屏
+    window.addEventListener('load', function () {
+      var s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://console.re/connector.js';
+      s.onload = function () { console.re.ready = true; };
+      s.onerror = function () { console.log('[Debug] console.re 加载失败（可能被屏蔽），不影响使用'); };
+      document.head.appendChild(s);
+    });
   </script>
-  <script src="https://console.re/connector.js"></script>
-  <!-- Supabase 客户端 SDK（用户登录 + 云端配置同步） -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=24"></script>
+  <!-- Supabase 客户端 SDK（用户登录 + 云端配置同步）—— async 不阻塞渲染 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" async></script>
+  <!-- MediaPipe Pose 改为按需懒加载（在 app.js 的 initPose() 中动态加载），不再阻塞首屏 -->
+  <script src="app.js?v=25"></script>
 </body>
 </html>

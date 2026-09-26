@@ -90,14 +90,31 @@ let currentUser = null;
 function initSupabase() {
   if (typeof window.supabase === 'undefined') {
     console.warn('[Auth] Supabase SDK 未加载，跳过登录功能');
-    return;
+    return false;
   }
+  if (supabaseClient) return true; // 防止重复初始化
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
   });
   console.log('[Auth] Supabase 客户端已初始化');
+  return true;
 }
-initSupabase();
+
+// Supabase SDK 改为 async 加载后，需要轮询等待它就绪再初始化登录态
+// 这样不阻塞首屏渲染，登录功能在 SDK 加载完后自动就绪
+let _supabaseWaitCount = 0;
+function initSupabaseWhenReady() {
+  if (initSupabase()) {
+    initAuthState();
+    return;
+  }
+  _supabaseWaitCount++;
+  if (_supabaseWaitCount > 200) { // 约 20 秒超时
+    console.warn('[Auth] Supabase SDK 等待超时，登录功能不可用（可能 CDN 被屏蔽）');
+    return;
+  }
+  setTimeout(initSupabaseWhenReady, 100);
+}
 
 // 把手机号转成虚拟邮箱（Supabase 需要邮箱格式，不发短信就用 @blink.local 占位）
 function phoneToEmail(phone) {
@@ -2227,6 +2244,8 @@ let pose = null;
 let camera = null;
 
 async function initPose() {
+  // MediaPipe 改为按需懒加载，避免首屏同步加载几 MB 脚本拖慢渲染
+  await ensureMediaPipeLoaded();
   pose = new Pose({
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
   });
@@ -2238,6 +2257,27 @@ async function initPose() {
     minTrackingConfidence: 0.5,
   });
   pose.onResults(onResults);
+}
+
+// 懒加载 MediaPipe 的 pose.js + camera_utils.js（用户开启摄像头时才加载）
+function ensureMediaPipeLoaded() {
+  if (window.Pose && window.Camera) return Promise.resolve();
+  if (ensureMediaPipeLoaded._p) return ensureMediaPipeLoaded._p;
+  ensureMediaPipeLoaded._p = new Promise((resolve, reject) => {
+    const base = 'https://cdn.jsdelivr.net/npm/@mediapipe/';
+    let loaded = 0;
+    const done = () => { if (++loaded === 2) resolve(); };
+    const fail = (e) => reject(new Error('MediaPipe 加载失败: ' + (e?.target?.src || '')));
+    const s1 = document.createElement('script');
+    s1.src = base + 'pose/pose.js'; s1.async = true;
+    s1.onload = done; s1.onerror = fail;
+    const s2 = document.createElement('script');
+    s2.src = base + 'camera_utils/camera_utils.js'; s2.async = true;
+    s2.onload = done; s2.onerror = fail;
+    document.head.appendChild(s1);
+    document.head.appendChild(s2);
+  });
+  return ensureMediaPipeLoaded._p;
 }
 
 async function startCamera() {
@@ -2524,8 +2564,9 @@ if ('serviceWorker' in navigator) {
 }
 
 // ============ 登录态初始化 ============
+// Supabase SDK 是 async 加载的，这里轮询等待 SDK 就绪后再初始化登录态
 updateLoginButton();
-initAuthState();
+initSupabaseWhenReady();
 
 async function initAuthState() {
   if (!supabaseClient) { updateLoginButton(); return; }
