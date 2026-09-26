@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v28 远程日志改用 Supabase logs 表（console.re 不支持公共服务器） */
-const CACHE_NAME = 'blink-guard-v28';
+/* 眨眨护眼 PWA Service Worker — v29 老 Android 兼容性优化：去除可选链语法 + 所有外部库多 CDN 备用 */
+const CACHE_NAME = 'blink-guard-v29';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=28',
+  './app.js?v=29',
   './manifest.json',
 ];
 

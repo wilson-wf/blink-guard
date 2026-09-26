@@ -297,11 +297,11 @@ function updateVoiceStatus() {
 }
 
 function loadVoices() {
-  const voices = window.speechSynthesis?.getVoices?.() || [];
+  const voices = (window.speechSynthesis && window.speechSynthesis.getVoices && window.speechSynthesis.getVoices()) || [];
   chineseVoice = voices.find(v => /zh|Chinese|cmn/i.test(v.lang + v.name)) || null;
   voicesLoaded = voices.length > 0;
   ttsHasChinese = !!chineseVoice;
-  console.log('[TTS] voices:', voices.length, 'chineseVoice:', chineseVoice?.name || '无');
+  console.log('[TTS] voices:', voices.length, 'chineseVoice:', (chineseVoice && chineseVoice.name) || '无');
   updateVoiceStatus();
 }
 if ('speechSynthesis' in window) {
@@ -726,6 +726,30 @@ let whisperRecorder = null;  // MediaRecorder 实例
 let whisperStream = null;    // 音频流
 const WHISPER_MODEL = 'Xenova/whisper-tiny'; // tiny 模型约40MB，速度快
 
+// transformers 库的多个 CDN 备用（某些网络环境下 jsdelivr 访问不稳定）
+const TRANSFORMERS_CDNS = [
+  'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3',
+  'https://unpkg.com/@huggingface/transformers@3',
+  'https://cdn.staticfile.net/@huggingface/transformers@3',
+];
+
+// 动态加载 transformers 库，依次尝试多个 CDN
+async function loadTransformers() {
+  let lastErr = null;
+  for (const url of TRANSFORMERS_CDNS) {
+    try {
+      console.log('[Whisper] 尝试加载 transformers:', url);
+      const mod = await import(url);
+      console.log('[Whisper] transformers 加载成功:', url);
+      return mod;
+    } catch (e) {
+      lastErr = e;
+      console.warn('[Whisper] transformers 加载失败，尝试下一个 CDN:', url, (e && e.message) || e);
+    }
+  }
+  throw lastErr || new Error('所有 CDN 都加载失败');
+}
+
 // 动态加载 Whisper 模型
 async function loadWhisperModel() {
   if (whisperPipe) return whisperPipe;
@@ -738,7 +762,7 @@ async function loadWhisperModel() {
   setBubble('正在加载语音识别模型（约40MB，首次较慢）…');
   console.log('[Whisper] 开始加载模型:', WHISPER_MODEL);
   try {
-    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3');
+    const { pipeline, env } = await loadTransformers();
     env.allowLocalModels = false;
     env.useBrowserCache = true;
     // 使用国内镜像加速模型下载（HuggingFace 国内访问慢）
@@ -1190,7 +1214,7 @@ async function generatePetImage(desc) {
         speak('画好啦，看看我变成' + desc + '的样子吧');
         return;
       }
-      throw new Error(data.error?.message || '图片生成失败');
+      throw new Error((data.error && data.error.message) || '图片生成失败');
     }
 
     // 没有 API Key 时，降级到 SVG 颜色推断
@@ -1297,7 +1321,7 @@ async function askLLM(userText) {
       return null;
     }
     const data = await resp.json();
-    const reply = data.choices?.[0]?.message?.content?.trim();
+    const reply = (((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '').trim());
     if (!reply) return null;
 
     chatHistory.push({ role: 'user', content: userText });
@@ -1490,7 +1514,7 @@ async function handleLoginSubmit() {
     return;
   }
   // Supabase 默认可能需要邮箱验证，我们在控制台已关闭，直接自动登录
-  if (data?.user) {
+  if (data && data.user) {
     setLoginMsg('注册并登录成功！', '#4CAF50');
     setTimeout(() => { if (loginPanel) loginPanel.style.display = 'none'; }, 600);
   } else {
@@ -2290,14 +2314,39 @@ async function initPose() {
 }
 
 // 懒加载 MediaPipe 的 pose.js + camera_utils.js（用户开启摄像头时才加载）
+// 多 CDN 备用，jsdelivr 失败时自动切换
+const MEDIAPIPE_CDNS = [
+  'https://cdn.jsdelivr.net/npm/@mediapipe/',
+  'https://unpkg.com/@mediapipe/',
+  'https://cdn.staticfile.net/@mediapipe/',
+];
+
 function ensureMediaPipeLoaded() {
   if (window.Pose && window.Camera) return Promise.resolve();
   if (ensureMediaPipeLoaded._p) return ensureMediaPipeLoaded._p;
-  ensureMediaPipeLoaded._p = new Promise((resolve, reject) => {
-    const base = 'https://cdn.jsdelivr.net/npm/@mediapipe/';
+  ensureMediaPipeLoaded._p = loadMediaPipeFromCDN(0);
+  return ensureMediaPipeLoaded._p;
+}
+
+function loadMediaPipeFromCDN(cdnIdx) {
+  if (cdnIdx >= MEDIAPIPE_CDNS.length) {
+    ensureMediaPipeLoaded._p = null;
+    return Promise.reject(new Error('MediaPipe 所有 CDN 都加载失败'));
+  }
+  const base = MEDIAPIPE_CDNS[cdnIdx];
+  console.log('[MediaPipe] 尝试从 CDN 加载:', base);
+  return new Promise((resolve, reject) => {
     let loaded = 0;
-    const done = () => { if (++loaded === 2) resolve(); };
-    const fail = (e) => reject(new Error('MediaPipe 加载失败: ' + (e?.target?.src || '')));
+    let failed = false;
+    const done = () => { if (++loaded === 2) { console.log('[MediaPipe] 加载成功'); resolve(); } };
+    const fail = (e) => {
+      if (failed) return;
+      failed = true;
+      console.warn('[MediaPipe] 加载失败，尝试下一个 CDN:', base);
+      // 清理已加载的 script 标签，防止冲突
+      ensureMediaPipeLoaded._p = null;
+      loadMediaPipeFromCDN(cdnIdx + 1).then(resolve).catch(reject);
+    };
     const s1 = document.createElement('script');
     s1.src = base + 'pose/pose.js'; s1.async = true;
     s1.onload = done; s1.onerror = fail;
@@ -2307,7 +2356,6 @@ function ensureMediaPipeLoaded() {
     document.head.appendChild(s1);
     document.head.appendChild(s2);
   });
-  return ensureMediaPipeLoaded._p;
 }
 
 async function startCamera() {
@@ -2602,7 +2650,7 @@ async function initAuthState() {
   if (!supabaseClient) { updateLoginButton(); return; }
   // 恢复已有会话
   const { data: { session } } = await supabaseClient.auth.getSession();
-  if (session?.user) {
+  if (session && session.user) {
     currentUser = session.user;
     console.log('[Auth] 已恢复登录:', getCurrentPhone());
     updateLoginButton();
@@ -2611,7 +2659,7 @@ async function initAuthState() {
   // 监听登录/登出变化
   supabaseClient.auth.onAuthStateChange(async (event, session) => {
     console.log('[Auth] 状态变化:', event);
-    if (session?.user) {
+    if (session && session.user) {
       currentUser = session.user;
       updateLoginButton();
       if (event === 'SIGNED_IN') {
