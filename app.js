@@ -2628,20 +2628,80 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden' && state.running) saveLog();
 });
 
-// ============ PWA 安装 ============
+// ============ PWA 安装（适配不同浏览器） ============
 let deferredPrompt = null;
+
+// 检测是否已安装（standalone 模式）
+function isStandalone() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+         (navigator.standalone === true);
+}
+
+// 检测浏览器类型
+function detectBrowser() {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua)) return 'ios';
+  if (/OpenHarmony|HarmonyOS/.test(ua)) return 'harmony';
+  if (/Chrome|Chromium/.test(ua) && !/Edg/.test(ua)) return 'chrome';
+  if (/Edg/.test(ua)) return 'edge';
+  if (/Firefox/.test(ua)) return 'firefox';
+  return 'other';
+}
+
+// 显示安装指引（不同浏览器方式不同）
+function showInstallGuide() {
+  const browser = detectBrowser();
+  let guide = '';
+  if (browser === 'ios') {
+    guide = '请点击浏览器底部的"分享"按钮，然后选择"添加到主屏幕"';
+  } else if (browser === 'harmony') {
+    guide = '请点击浏览器菜单（右上角三个点），选择"添加到桌面"';
+  } else if (browser === 'chrome' || browser === 'edge') {
+    guide = '请点击浏览器菜单（右上角三个点），选择"添加到主屏幕"或"安装应用"';
+  } else {
+    guide = '请在浏览器菜单中选择"添加到主屏幕"';
+  }
+  setBubble('安装指引：' + guide);
+  // 同时在页面上弹出一个提示框
+  alert('安装到桌面的方法：\n\n' + guide);
+}
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
   installBtn.style.display = 'inline-block';
+  console.log('[PWA] 浏览器支持自动安装，安装按钮已显示');
 });
+
 installBtn.addEventListener('click', async () => {
-  if (!deferredPrompt) return;
-  deferredPrompt.prompt();
-  await deferredPrompt.userChoice;
-  deferredPrompt = null;
-  installBtn.style.display = 'none';
+  if (deferredPrompt) {
+    // Chrome/Edge 支持自动安装
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    if (choice.outcome === 'accepted') {
+      console.log('[PWA] 用户接受安装');
+    }
+    deferredPrompt = null;
+    installBtn.style.display = 'none';
+  } else {
+    // 不支持自动安装的浏览器（iOS/鸿蒙等），显示手动安装指引
+    showInstallGuide();
+  }
 });
+
+// 已安装的话隐藏安装按钮
+if (isStandalone()) {
+  installBtn.style.display = 'none';
+  console.log('[PWA] 已在独立模式运行，隐藏安装按钮');
+} else {
+  // 页面加载后显示安装按钮（即使 beforeinstallprompt 没触发，也让用户能看到指引）
+  setTimeout(() => {
+    if (!deferredPrompt) {
+      installBtn.style.display = 'inline-block';
+      console.log('[PWA] 浏览器不支持自动安装，安装按钮用于显示安装指引');
+    }
+  }, 2000);
+}
 
 // ============ 初始化 ============
 renderLogs();

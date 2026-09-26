@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v32 修复 Whisper 模型加载：显式设置 remotePathTemplate 为 {model}/resolve/{revision}/ */
-const CACHE_NAME = 'blink-guard-v32';
+/* 眨眨护眼 PWA Service Worker — v33 修复安装按钮：适配鸿蒙/iOS 显示手动安装指引 */
+const CACHE_NAME = 'blink-guard-v33';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=32',
+  './app.js?v=33',
   './manifest.json',
 ];
 
