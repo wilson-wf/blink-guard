@@ -99,6 +99,14 @@ const SUPABASE_ANON_KEY = 'sb_publishable_F1qdhcIQgN78C7QdXEqN8Q_IU7E55rY';
   console.log('[Debug] 日志面板已启动，页面右下角🐞按钮可查看');
 })();
 
+// ============ 全局错误捕获（防止某个功能异常导致页面崩溃） ============
+window.addEventListener('error', function (e) {
+  console.error('[全局错误]', e.message, 'at', e.filename + ':' + e.lineno);
+});
+window.addEventListener('unhandledrejection', function (e) {
+  console.error('[未捕获Promise错误]', (e.reason && e.reason.message) || e.reason);
+});
+
 // ============ 环境信息日志（方便远程诊断） ============
 // 日志缓冲区机制保证：即使 connector.js 还没加载完，环境信息也会被缓存，加载后自动推送
 function logEnv() {

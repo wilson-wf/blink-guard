@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v29 老 Android 兼容性优化：去除可选链语法 + 所有外部库多 CDN 备用 */
-const CACHE_NAME = 'blink-guard-v29';
+/* 眨眨护眼 PWA Service Worker — v30 加全局错误捕获，防止页面崩溃 */
+const CACHE_NAME = 'blink-guard-v30';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=29',
+  './app.js?v=30',
   './manifest.json',
 ];
 
