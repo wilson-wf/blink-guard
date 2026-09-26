@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v27 修复 console.re 频道配置：需 id=consolerescript + data-channel */
-const CACHE_NAME = 'blink-guard-v27';
+/* 眨眨护眼 PWA Service Worker — v28 远程日志改用 Supabase logs 表（console.re 不支持公共服务器） */
+const CACHE_NAME = 'blink-guard-v28';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=26',
+  './app.js?v=28',
   './manifest.json',
 ];
 

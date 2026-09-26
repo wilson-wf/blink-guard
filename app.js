@@ -7,7 +7,11 @@
  * 界面：桌宠模式 —— 卡通小怪兽"眨眨"在前台，摄像头在后台检测
  */
 
-// ============ 调试日志面板（拦截 console 输出到页面 + 推送到 console.re 远程） ============
+// ============ Supabase 配置（放在最前，供日志推送等模块使用） ============
+const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_F1qdhcIQgN78C7QdXEqN8Q_IU7E55rY';
+
+// ============ 调试日志面板（拦截 console 输出到页面 + 推送到 Supabase 远程日志表） ============
 (function initDebugPanel() {
   const debugLog = [];
   const MAX_LOGS = 200;
@@ -15,10 +19,11 @@
   const originalWarn = console.warn;
   const originalError = console.error;
 
-  // console.re 日志缓冲区：connector.js 加载前的日志先缓存，加载完后批量推送
-  const consoleReBuffer = [];
-  const MAX_BUFFER = 300;
-  let consoleReReady = false;
+  // 远程日志缓冲区：批量推送到 Supabase，减少请求次数
+  const remoteLogBuffer = [];
+  const MAX_REMOTE_BUFFER = 50;
+  let remoteFlushTimer = null;
+  const REMOTE_FLUSH_INTERVAL = 3000; // 3 秒批量推送一次
 
   function argsToMsg(args) {
     return args.map(a => {
@@ -40,56 +45,46 @@
     }
   }
 
-  // 把日志推送到 console.re 远程服务器
-  function pushToConsoleRe(level, args) {
+  // 把日志推送到 Supabase logs 表（替代 console.re，因为 console.re 不支持公共服务器）
+  function flushRemoteLogs() {
+    if (remoteFlushTimer) { clearTimeout(remoteFlushTimer); remoteFlushTimer = null; }
+    if (!remoteLogBuffer.length) return;
+    const batch = remoteLogBuffer.splice(0, remoteLogBuffer.length);
+    const rows = batch.map(item => ({
+      level: item.level,
+      message: item.msg,
+      user_agent: navigator.userAgent,
+      page_url: location.href,
+    }));
+    fetch(`${SUPABASE_URL}/rest/v1/logs`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify(rows),
+    }).catch(() => { /* 推送失败忽略，日志已在本地面板显示 */ });
+  }
+
+  function pushToRemote(level, args) {
     try {
-      const msg = argsToMsg(args);
-      const re = window.console && window.console.re;
-      const canSend = re && typeof re.log === 'function';
-      if (!canSend) {
-        // connector.js 还没加载好，先缓存
-        consoleReBuffer.push({ level, msg });
-        if (consoleReBuffer.length > MAX_BUFFER) consoleReBuffer.shift();
-        return;
+      remoteLogBuffer.push({ level, msg: argsToMsg(args) });
+      if (remoteLogBuffer.length >= MAX_REMOTE_BUFFER) {
+        flushRemoteLogs();
+      } else if (!remoteFlushTimer) {
+        remoteFlushTimer = setTimeout(flushRemoteLogs, REMOTE_FLUSH_INTERVAL);
       }
-      // 可用 → 先把缓冲区里积压的日志全部推送（按时间顺序）
-      if (consoleReBuffer.length) {
-        const batch = consoleReBuffer.splice(0, consoleReBuffer.length);
-        for (const item of batch) {
-          if (item.level === 'WARN' && re.warn) re.warn(item.msg);
-          else if (item.level === 'ERROR' && re.error) re.error(item.msg);
-          else re.log(item.msg);
-        }
-      }
-      // 推送当前这条
-      if (level === 'WARN' && re.warn) re.warn(msg);
-      else if (level === 'ERROR' && re.error) re.error(msg);
-      else re.log(msg);
     } catch(e) { /* 忽略推送失败 */ }
   }
 
-  // 轮询检测 console.re connector.js 是否加载完成，加载完后把缓冲区日志推送出去
-  function checkConsoleReReady() {
-    const re = window.console && window.console.re;
-    if (re && typeof re.log === 'function') {
-      if (!consoleReReady) {
-        consoleReReady = true;
-        // 触发一次日志推送，把缓冲区刷出去
-        console.log('[Debug] console.re 已连接，远程日志开始推送');
-      }
-    }
-  }
-  // 每 500ms 检测一次，最多检测 30 秒
-  let _checkCount = 0;
-  const _checkTimer = setInterval(() => {
-    checkConsoleReReady();
-    _checkCount++;
-    if (_checkCount > 60 || consoleReReady) clearInterval(_checkTimer);
-  }, 500);
+  console.log = function(...args) { addToDebugPanel('LOG', args); pushToRemote('LOG', args); originalLog.apply(console, args); };
+  console.warn = function(...args) { addToDebugPanel('WARN', args); pushToRemote('WARN', args); originalWarn.apply(console, args); };
+  console.error = function(...args) { addToDebugPanel('ERROR', args); pushToRemote('ERROR', args); originalError.apply(console, args); };
 
-  console.log = function(...args) { addToDebugPanel('LOG', args); pushToConsoleRe('LOG', args); originalLog.apply(console, args); };
-  console.warn = function(...args) { addToDebugPanel('WARN', args); pushToConsoleRe('WARN', args); originalWarn.apply(console, args); };
-  console.error = function(...args) { addToDebugPanel('ERROR', args); pushToConsoleRe('ERROR', args); originalError.apply(console, args); };
+  // 页面关闭前把剩余日志推送出去
+  window.addEventListener('beforeunload', flushRemoteLogs);
 
   window.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('debugBtn');
@@ -118,8 +113,7 @@ function logEnv() {
 logEnv();
 
 // ============ Supabase 用户登录与云端配置同步 ============
-const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlid2JlYnJ3eWpqdWttbXNmaXBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzODA3OTMsImV4cCI6MjEwNTk1Njc5M30.ExEFlGoweEqlx1wjNeHPBTaqlhfBUF7BP6VRIX616vg';
+// SUPABASE_URL / SUPABASE_ANON_KEY 已在文件开头定义
 let supabaseClient = null;
 let currentUser = null;
 
