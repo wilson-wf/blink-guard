@@ -604,6 +604,123 @@ function initVoiceRecognition() {
   return true;
 }
 
+// ============ Whisper WASM 语音识别（纯前端降级方案，适配鸿蒙等不支持 SpeechRecognition 的浏览器） ============
+let whisperPipe = null;      // Whisper 识别管道（加载后缓存）
+let whisperLoading = false;  // 是否正在加载模型
+let whisperRecorder = null;  // MediaRecorder 实例
+let whisperStream = null;    // 音频流
+const WHISPER_MODEL = 'Xenova/whisper-tiny'; // tiny 模型约40MB，速度快
+
+// 动态加载 Whisper 模型
+async function loadWhisperModel() {
+  if (whisperPipe) return whisperPipe;
+  if (whisperLoading) {
+    // 正在加载，等待完成
+    while (whisperLoading) { await new Promise(r => setTimeout(r, 200)); }
+    return whisperPipe;
+  }
+  whisperLoading = true;
+  setBubble('正在加载语音识别模型（约40MB，首次较慢）…');
+  console.log('[Whisper] 开始加载模型:', WHISPER_MODEL);
+  try {
+    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3');
+    env.allowLocalModels = false;
+    env.useBrowserCache = true;
+    whisperPipe = await pipeline('automatic-speech-recognition', WHISPER_MODEL, {
+      progress_callback: (p) => {
+        if (p.status === 'progress') {
+          console.log('[Whisper] 下载进度:', Math.round(p.progress * 100) + '%');
+        }
+      }
+    });
+    console.log('[Whisper] 模型加载完成');
+    setBubble('语音识别模型已就绪，可以说话啦！');
+    return whisperPipe;
+  } catch (e) {
+    console.error('[Whisper] 模型加载失败:', e);
+    whisperPipe = null;
+    setBubble('语音识别模型加载失败，用文字聊天吧');
+    throw e;
+  } finally {
+    whisperLoading = false;
+  }
+}
+
+// 把录音 blob 转成 Whisper 需要的 16kHz 单声道 Float32Array
+async function audioBlobToWhisperInput(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  // 重采样到 16kHz
+  const offlineCtx = new OfflineAudioContext(1, audioBuffer.duration * 16000, 16000);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(offlineCtx.destination);
+  source.start();
+  const resampled = await offlineCtx.startRendering();
+  audioCtx.close();
+  return resampled.getChannelData(0); // Float32Array
+}
+
+// 用 Whisper 进行语音识别
+async function startWhisperRecognition() {
+  try {
+    // 先加载模型
+    const pipe = await loadWhisperModel();
+    if (!pipe) return;
+
+    // 开始录音
+    whisperStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micPermission = 'granted';
+    updateMicStatus();
+
+    const chunks = [];
+    whisperRecorder = new MediaRecorder(whisperStream);
+    whisperRecorder.ondataavailable = e => chunks.push(e.data);
+
+    voiceBtn.textContent = '🔴 聆听中…（5秒）';
+    setBubble('我在听~请说话（5秒后自动识别）');
+    console.log('[Whisper] 开始录音');
+
+    whisperRecorder.start();
+
+    // 录 5 秒
+    await new Promise(r => setTimeout(r, 5000));
+
+    if (whisperRecorder && whisperRecorder.state === 'recording') {
+      whisperRecorder.stop();
+    }
+    whisperStream.getTracks().forEach(t => t.stop());
+
+    console.log('[Whisper] 录音结束，开始识别');
+    setBubble('正在识别你说的话…');
+    voiceBtn.textContent = '⚙️ 识别中…';
+
+    // 等 onstop 完成
+    await new Promise(r => { whisperRecorder.onstop = r; });
+
+    const blob = new Blob(chunks, { type: 'audio/webm' });
+    const audioData = await audioBlobToWhisperInput(blob);
+
+    const result = await pipe(audioData, { language: 'zh', task: 'transcribe' });
+    const text = (result.text || '').trim();
+    console.log('[Whisper] 识别结果:', text);
+
+    voiceBtn.textContent = '🎤 对话';
+
+    if (text) {
+      handleVoiceCommand(text);
+    } else {
+      speak('没听清你说什么，再说一次试试，或者用文字聊天吧');
+    }
+  } catch (e) {
+    console.error('[Whisper] 识别失败:', e);
+    voiceBtn.textContent = '🎤 对话';
+    if (whisperStream) whisperStream.getTracks().forEach(t => t.stop());
+    speak('语音识别出了点问题，用文字跟我聊天吧');
+  }
+}
+
 // 测试麦克风：录音1秒后播放，确认麦克风能正常工作
 async function testMicrophone() {
   try {
@@ -1019,18 +1136,19 @@ async function handleLlmReply(text) {
 voiceBtn.addEventListener('click', async () => {
   unlockSpeech();
 
-  // 情况1：浏览器不支持语音识别 → 直接用文字输入
+  // 情况1：浏览器不支持 SpeechRecognition → 用 Whisper WASM 方案
   if (!asrSupported) {
-    speak('这个浏览器不支持语音识别，用文字跟我聊天吧');
-    showTextInput();
+    console.log('[对话] SpeechRecognition 不可用，切换到 Whisper WASM 方案');
+    await startWhisperRecognition();
     return;
   }
 
   if (!recognition) {
     const ok = initVoiceRecognition();
     if (!ok) {
-      speak('这个浏览器不支持语音识别，用文字跟我聊天吧');
-      showTextInput();
+      // SpeechRecognition 初始化失败也用 Whisper
+      console.log('[对话] SpeechRecognition 初始化失败，切换到 Whisper WASM 方案');
+      await startWhisperRecognition();
       return;
     }
   }
