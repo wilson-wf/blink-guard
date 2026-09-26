@@ -198,11 +198,12 @@
 
   <!-- 远程调试日志：console.re connector.js 用 async 尽早加载，不阻塞渲染 -->
   <!-- app.js 内部有日志缓冲区，connector.js 加载前的日志会缓存，加载完后批量推送 -->
+  <!-- 注意：console.re 通过 script 标签的 id="consolerescript" 和 data-channel 读取频道，必须这样设置 -->
   <script>
     window.console = window.console || {};
     console.re = { channel: 'blink-guard-2026', showInPage: true, ready: false };
   </script>
-  <script src="https://console.re/connector.js" async></script>
+  <script id="consolerescript" src="https://console.re/connector.js" data-channel="blink-guard-2026" async></script>
   <!-- Supabase 客户端 SDK（用户登录 + 云端配置同步）—— async 不阻塞渲染 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" async></script>
   <!-- MediaPipe Pose 改为按需懒加载（在 app.js 的 initPose() 中动态加载），不再阻塞首屏 -->

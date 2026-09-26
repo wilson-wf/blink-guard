@@ -1,5 +1,5 @@
-/* 眨眨护眼 PWA Service Worker — v26 console.re 日志缓冲区，修复早期日志丢失 */
-const CACHE_NAME = 'blink-guard-v26';
+/* 眨眨护眼 PWA Service Worker — v27 修复 console.re 频道配置：需 id=consolerescript + data-channel */
+const CACHE_NAME = 'blink-guard-v27';
 const ASSETS = [
   './',
   './index.html',
