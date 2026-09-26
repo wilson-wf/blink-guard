@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v21 修复supabase变量名冲突 */
-const CACHE_NAME = 'blink-guard-v21';
+/* 眨眨护眼 PWA Service Worker — v22 修复语音识别启动超时降级 */
+const CACHE_NAME = 'blink-guard-v22';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=21',
+  './app.js?v=22',
   './manifest.json',
 ];
 

@@ -483,8 +483,10 @@ function ttsDiagnose() {
 let recognition = null;
 let isListening = false;
 let recognitionTimer = null;     // 超时定时器
+let recognitionStartTimer = null;  // 启动超时定时器（onstart 没触发时的安全网）
 let recognitionAttempts = 0;     // 连续失败次数
 const RECOGNITION_TIMEOUT = 8000; // 8秒没结果就自动停止
+const START_TIMEOUT = 3000;       // 3秒内 onstart 没触发就降级（鸿蒙常见问题）
 
 // 检测语音识别是否支持
 asrSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -546,6 +548,10 @@ function clearRecognitionTimer() {
     clearTimeout(recognitionTimer);
     recognitionTimer = null;
   }
+  if (recognitionStartTimer) {
+    clearTimeout(recognitionStartTimer);
+    recognitionStartTimer = null;
+  }
 }
 
 function initVoiceRecognition() {
@@ -564,6 +570,7 @@ function initVoiceRecognition() {
   recognition.maxAlternatives = 1;
 
   recognition.onstart = () => {
+    clearRecognitionTimer();  // 清除启动超时（onstart 已触发）
     isListening = true;
     recognitionAttempts = 0;
     voiceBtn.textContent = '🔴 聆听中…';
@@ -664,6 +671,9 @@ async function loadWhisperModel() {
     const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3');
     env.allowLocalModels = false;
     env.useBrowserCache = true;
+    // 使用国内镜像加速模型下载（HuggingFace 国内访问慢）
+    env.remoteHost = 'https://hf-mirror.com';
+    env.remotePathTemplate = '{model}/resolve/{revision}/{file}';
     whisperPipe = await pipeline('automatic-speech-recognition', WHISPER_MODEL, {
       progress_callback: (p) => {
         if (p.status === 'progress') {
@@ -1369,6 +1379,18 @@ voiceBtn.addEventListener('click', async () => {
       updateMicStatus();
     }
     // 启动语音识别
+    // 安全网：如果 3 秒内 onstart 没触发，说明浏览器语音识别引擎不可用（鸿蒙常见）
+    // 立即降级到 Whisper WASM
+    clearRecognitionTimer();
+    recognitionStartTimer = setTimeout(() => {
+      console.warn('[语音识别] onstart 超时，降级到 Whisper WASM');
+      try { recognition.stop(); } catch (e) {}
+      isListening = false;
+      voiceBtn.textContent = '🎤 对话';
+      speak('这个浏览器的语音识别不能用，正在切换到离线识别…');
+      startWhisperRecognition();
+    }, START_TIMEOUT);
+
     recognition.start();
   } catch (err) {
     console.warn('[麦克风] 权限请求失败:', err.name, err.message);
