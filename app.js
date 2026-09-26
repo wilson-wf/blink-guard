@@ -61,7 +61,7 @@ console.log('[Env] isSecureContext:', window.isSecureContext);
 // ============ Supabase 用户登录与云端配置同步 ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlid2JlYnJ3eWpqdWttbXNmaXBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzODA3OTMsImV4cCI6MjEwNTk1Njc5M30.ExEFlGoweEqlx1wjNeHPBTaqlhfBUF7BP6VRIX616vg';
-let supabase = null;
+let supabaseClient = null;
 let currentUser = null;
 
 function initSupabase() {
@@ -69,7 +69,7 @@ function initSupabase() {
     console.warn('[Auth] Supabase SDK 未加载，跳过登录功能');
     return;
   }
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
   });
   console.log('[Auth] Supabase 客户端已初始化');
@@ -896,12 +896,12 @@ function hasLlmKey() {
 // ============ 云端配置同步 ============
 let cloudSaveTimer = null;
 function saveUserSettingsToCloud() {
-  if (!supabase || !currentUser) return;
+  if (!supabaseClient || !currentUser) return;
   // 防抖 500ms，避免频繁写库
   if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
   cloudSaveTimer = setTimeout(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from('user_settings')
         .upsert({
           id: currentUser.id,
@@ -919,9 +919,9 @@ function saveUserSettingsToCloud() {
 }
 
 async function loadUserSettingsFromCloud() {
-  if (!supabase || !currentUser) return;
+  if (!supabaseClient || !currentUser) return;
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('user_settings')
       .select('llm_provider, llm_model, llm_key')
       .eq('id', currentUser.id)
@@ -1145,7 +1145,7 @@ function setLoginMsg(text, color) {
 }
 
 async function handleLoginSubmit() {
-  if (!supabase) { setLoginMsg('登录服务未就绪，请检查网络', '#f44'); return; }
+  if (!supabaseClient) { setLoginMsg('登录服务未就绪，请检查网络', '#f44'); return; }
   const phone = document.getElementById('loginPhone').value.trim().replace(/\D/g, '');
   const pwd = document.getElementById('loginPwd').value;
   if (!/^\d{11}$/.test(phone)) { setLoginMsg('请输入11位手机号', '#f44'); return; }
@@ -1157,7 +1157,7 @@ async function handleLoginSubmit() {
 
   const email = phoneToEmail(phone);
   // 先尝试登录
-  const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password: pwd });
+  const { error: signInErr } = await supabaseClient.auth.signInWithPassword({ email, password: pwd });
   if (!signInErr) {
     setLoginMsg('登录成功！', '#4CAF50');
     setTimeout(() => { if (loginPanel) loginPanel.style.display = 'none'; }, 600);
@@ -1166,7 +1166,7 @@ async function handleLoginSubmit() {
   }
   // 登录失败→说明是新用户，自动注册
   setLoginMsg('新用户，正在注册…', '#2196F3');
-  const { data, error: signUpErr } = await supabase.auth.signUp({ email, password: pwd });
+  const { data, error: signUpErr } = await supabaseClient.auth.signUp({ email, password: pwd });
   btn.disabled = false; btn.textContent = '登录 / 注册';
   if (signUpErr) {
     setLoginMsg('注册失败：' + signUpErr.message, '#f44');
@@ -1182,8 +1182,8 @@ async function handleLoginSubmit() {
 }
 
 async function handleLogout() {
-  if (!supabase) return;
-  await supabase.auth.signOut();
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
 }
 
 function updateLoginButton() {
@@ -2141,9 +2141,9 @@ updateLoginButton();
 initAuthState();
 
 async function initAuthState() {
-  if (!supabase) { updateLoginButton(); return; }
+  if (!supabaseClient) { updateLoginButton(); return; }
   // 恢复已有会话
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabaseClient.auth.getSession();
   if (session?.user) {
     currentUser = session.user;
     console.log('[Auth] 已恢复登录:', getCurrentPhone());
@@ -2151,7 +2151,7 @@ async function initAuthState() {
     await loadUserSettingsFromCloud();
   }
   // 监听登录/登出变化
-  supabase.auth.onAuthStateChange(async (event, session) => {
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
     console.log('[Auth] 状态变化:', event);
     if (session?.user) {
       currentUser = session.user;
