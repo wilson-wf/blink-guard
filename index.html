@@ -17,6 +17,7 @@
       <span class="title">👁 眨眨 · AI护眼小怪兽</span>
       <div class="voice-status" id="voiceStatus">🔊 语音检测中…</div>
       <div class="voice-status" id="micStatus">🎤 检测中…</div>
+      <button id="loginBtn" class="install-btn" style="background:#4CAF50;">👤 登录</button>
       <button id="installBtn" class="install-btn" style="display:none;">安装</button>
     </header>
 
@@ -166,6 +167,8 @@
     console.re = { channel: 'blink-guard-2026', showInPage: true };
   </script>
   <script src="https://console.re/connector.js"></script>
-  <script src="app.js?v=18"></script>
+  <!-- Supabase 客户端 SDK（用户登录 + 云端配置同步） -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

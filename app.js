@@ -58,6 +58,38 @@ console.log('[Env] speechSynthesis:', 'speechSynthesis' in window ? '支持' : '
 console.log('[Env] getUserMedia:', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? '支持' : '不支持');
 console.log('[Env] isSecureContext:', window.isSecureContext);
 
+// ============ Supabase 用户登录与云端配置同步 ============
+const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlid2JlYnJ3eWpqdWttbXNmaXBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzODA3OTMsImV4cCI6MjEwNTk1Njc5M30.ExEFlGoweEqlx1wjNeHPBTaqlhfBUF7BP6VRIX616vg';
+let supabase = null;
+let currentUser = null;
+
+function initSupabase() {
+  if (typeof window.supabase === 'undefined') {
+    console.warn('[Auth] Supabase SDK 未加载，跳过登录功能');
+    return;
+  }
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+  });
+  console.log('[Auth] Supabase 客户端已初始化');
+}
+initSupabase();
+
+// 把手机号转成虚拟邮箱（Supabase 需要邮箱格式，不发短信就用 @blink.local 占位）
+function phoneToEmail(phone) {
+  return phone.replace(/\D/g, '') + '@blink.local';
+}
+
+// 当前是否已登录
+function isLoggedIn() {
+  return !!currentUser;
+}
+function getCurrentPhone() {
+  if (!currentUser) return '';
+  return (currentUser.email || '').replace('@blink.local', '');
+}
+
 // ============ 参数配置 ============
 const CONFIG = {
   FACE_WIDTH_REAL_CM: 14.0,
@@ -538,7 +570,7 @@ function initVoiceRecognition() {
     setBubble('我在听~请说话');
     console.log('[语音识别] onstart - 开始监听');
 
-    // 超时保护：8秒没任何回调就自动停止
+    // 超时保护：8秒没任何回调就自动停止，并降级到 Whisper
     clearRecognitionTimer();
     recognitionTimer = setTimeout(() => {
       console.warn('[语音识别] 超时，强制停止');
@@ -547,11 +579,12 @@ function initVoiceRecognition() {
       voiceBtn.textContent = '🎤 对话';
       recognitionAttempts++;
       if (recognitionAttempts >= 2) {
-        // 连续超时2次，说明这个浏览器的语音识别不能用
-        speak('语音识别没反应，用文字跟我聊天吧');
-        showTextInput();
+        // 连续超时2次，说明这个浏览器的语音识别不能用，降级到 Whisper
+        console.log('[语音识别] 连续超时，降级到 Whisper WASM');
+        speak('语音识别没反应，正在切换到离线识别模式…');
+        startWhisperRecognition();
       } else {
-        speak('没听到声音，再说一次试试，或者用文字聊天吧');
+        speak('没听到声音，再说一次试试');
       }
     }, RECOGNITION_TIMEOUT);
   };
@@ -576,21 +609,26 @@ function initVoiceRecognition() {
     voiceBtn.textContent = '🎤 对话';
 
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-      // 鸿蒙/国产浏览器常见：有 getUserMedia 但没有语音识别服务
-      speak('这个浏览器没有语音识别功能，用文字跟我聊天吧');
-      showTextInput();
+      // 鸿蒙/国产浏览器常见：有 SpeechRecognition 对象但服务不可用
+      // 自动降级到 Whisper WASM 方案
+      console.log('[语音识别] 服务不可用，降级到 Whisper WASM');
+      speak('语音识别服务不可用，正在切换到离线识别模式…');
+      startWhisperRecognition();
     } else if (event.error === 'no-speech') {
       speak('没听清，再说一次吧');
     } else if (event.error === 'audio-capture') {
       speak('麦克风被占用了，关闭其他录音应用再试');
     } else if (event.error === 'network') {
-      speak('网络不太好，语音识别用不了，试试文字聊天吧');
-      showTextInput();
+      // 网络错误也降级到 Whisper
+      console.log('[语音识别] 网络错误，降级到 Whisper WASM');
+      speak('网络语音识别用不了，正在切换到离线识别模式…');
+      startWhisperRecognition();
     } else if (event.error === 'aborted') {
       // 用户主动停止或超时停止，不额外提示
     } else {
-      speak('语音识别暂时用不了，试试用文字跟我聊天吧');
-      showTextInput();
+      // 其他错误也尝试 Whisper 降级
+      console.log('[语音识别] 未知错误，降级到 Whisper WASM');
+      startWhisperRecognition();
     }
   };
 
@@ -835,21 +873,79 @@ function getLlmProvider() {
 }
 function setLlmProvider(p) {
   localStorage.setItem('blink_llm_provider', p);
+  saveUserSettingsToCloud();
 }
 function getLlmKey() {
   return localStorage.getItem('blink_llm_key') || '';
 }
 function setLlmKey(key) {
   localStorage.setItem('blink_llm_key', key.trim());
+  saveUserSettingsToCloud();
 }
 function getLlmModel() {
   return localStorage.getItem('blink_llm_model') || LLM_PROVIDERS[getLlmProvider()].defaultModel;
 }
 function setLlmModel(m) {
   localStorage.setItem('blink_llm_model', m);
+  saveUserSettingsToCloud();
 }
 function hasLlmKey() {
   return getLlmKey().length > 0;
+}
+
+// ============ 云端配置同步 ============
+let cloudSaveTimer = null;
+function saveUserSettingsToCloud() {
+  if (!supabase || !currentUser) return;
+  // 防抖 500ms，避免频繁写库
+  if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_settings')
+        .upsert({
+          id: currentUser.id,
+          llm_provider: getLlmProvider(),
+          llm_model: getLlmModel(),
+          llm_key: getLlmKey(),
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' });
+      if (error) console.warn('[Cloud] 同步失败:', error.message);
+      else console.log('[Cloud] 配置已同步到云端');
+    } catch (e) {
+      console.warn('[Cloud] 同步异常:', e.message);
+    }
+  }, 500);
+}
+
+async function loadUserSettingsFromCloud() {
+  if (!supabase || !currentUser) return;
+  try {
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('llm_provider, llm_model, llm_key')
+      .eq('id', currentUser.id)
+      .maybeSingle();
+    if (error) {
+      console.warn('[Cloud] 拉取配置失败:', error.message);
+      return;
+    }
+    if (data && (data.llm_key || data.llm_provider || data.llm_model)) {
+      console.log('[Cloud] 从云端恢复配置');
+      if (data.llm_provider) localStorage.setItem('blink_llm_provider', data.llm_provider);
+      if (data.llm_model) localStorage.setItem('blink_llm_model', data.llm_model);
+      if (data.llm_key) localStorage.setItem('blink_llm_key', data.llm_key);
+      return true;
+    } else {
+      console.log('[Cloud] 云端无配置，使用本地配置并上传');
+      // 把本地已有配置上传一次
+      if (getLlmKey()) saveUserSettingsToCloud();
+      return false;
+    }
+  } catch (e) {
+    console.warn('[Cloud] 拉取异常:', e.message);
+    return false;
+  }
 }
 
 // 调用大模型获取回复
@@ -1009,6 +1105,101 @@ function updateAiStatus() {
   } else {
     el.textContent = '⚠️ 未配置 Key，将使用固定指令回复';
     el.style.color = '#FF9800';
+  }
+}
+
+// ============ 用户登录面板 ============
+let loginPanel = null;
+function showLoginPanel() {
+  if (loginPanel) { loginPanel.style.display = 'flex'; return; }
+  loginPanel = document.createElement('div');
+  loginPanel.className = 'text-input-panel';
+  loginPanel.innerHTML = `
+    <div class="text-input-box">
+      <div class="text-input-title">👤 登录 / 注册</div>
+      <p style="font-size:12px;color:#666;margin:0 0 8px;">
+        登录后，你的 AI 配置会自动同步到云端，换手机也不丢～
+      </p>
+      <input type="tel" id="loginPhone" placeholder="手机号" maxlength="11"
+        style="width:100%;padding:8px;border:2px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;margin-bottom:8px;" />
+      <input type="password" id="loginPwd" placeholder="设置密码（至少6位）"
+        style="width:100%;padding:8px;border:2px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;margin-bottom:4px;" />
+      <p id="loginMsg" style="font-size:12px;color:#999;margin:0 0 8px;min-height:16px;"></p>
+      <div class="text-input-btns">
+        <button class="btn" id="loginSubmitBtn" style="background:#4CAF50;color:#fff;">登录 / 注册</button>
+        <button class="btn" id="loginCloseBtn">关闭</button>
+      </div>
+      <p style="font-size:10px;color:#aaa;margin:8px 0 0;">
+        提示：密码忘记无法找回（不发验证码），请记牢哦～
+      </p>
+    </div>
+  `;
+  document.body.appendChild(loginPanel);
+  document.getElementById('loginSubmitBtn').onclick = handleLoginSubmit;
+  document.getElementById('loginCloseBtn').onclick = () => { loginPanel.style.display = 'none'; };
+}
+
+function setLoginMsg(text, color) {
+  const el = document.getElementById('loginMsg');
+  if (el) { el.textContent = text; el.style.color = color || '#999'; }
+}
+
+async function handleLoginSubmit() {
+  if (!supabase) { setLoginMsg('登录服务未就绪，请检查网络', '#f44'); return; }
+  const phone = document.getElementById('loginPhone').value.trim().replace(/\D/g, '');
+  const pwd = document.getElementById('loginPwd').value;
+  if (!/^\d{11}$/.test(phone)) { setLoginMsg('请输入11位手机号', '#f44'); return; }
+  if (pwd.length < 6) { setLoginMsg('密码至少6位', '#f44'); return; }
+
+  const btn = document.getElementById('loginSubmitBtn');
+  btn.disabled = true; btn.textContent = '处理中…';
+  setLoginMsg('正在登录…', '#2196F3');
+
+  const email = phoneToEmail(phone);
+  // 先尝试登录
+  const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password: pwd });
+  if (!signInErr) {
+    setLoginMsg('登录成功！', '#4CAF50');
+    setTimeout(() => { if (loginPanel) loginPanel.style.display = 'none'; }, 600);
+    btn.disabled = false; btn.textContent = '登录 / 注册';
+    return;
+  }
+  // 登录失败→说明是新用户，自动注册
+  setLoginMsg('新用户，正在注册…', '#2196F3');
+  const { data, error: signUpErr } = await supabase.auth.signUp({ email, password: pwd });
+  btn.disabled = false; btn.textContent = '登录 / 注册';
+  if (signUpErr) {
+    setLoginMsg('注册失败：' + signUpErr.message, '#f44');
+    return;
+  }
+  // Supabase 默认可能需要邮箱验证，我们在控制台已关闭，直接自动登录
+  if (data?.user) {
+    setLoginMsg('注册并登录成功！', '#4CAF50');
+    setTimeout(() => { if (loginPanel) loginPanel.style.display = 'none'; }, 600);
+  } else {
+    setLoginMsg('注册成功，请再次点击登录', '#FF9800');
+  }
+}
+
+async function handleLogout() {
+  if (!supabase) return;
+  await supabase.auth.signOut();
+}
+
+function updateLoginButton() {
+  const btn = document.getElementById('loginBtn');
+  if (!btn) return;
+  if (currentUser) {
+    const phone = getCurrentPhone();
+    btn.textContent = '👤 ' + (phone ? phone.slice(0, 3) + '****' + phone.slice(7) : '已登录');
+    btn.style.background = '#4CAF50';
+    btn.onclick = () => {
+      if (confirm('已登录 ' + phone + '，是否退出登录？')) handleLogout();
+    };
+  } else {
+    btn.textContent = '👤 登录';
+    btn.style.background = '#FF9800';
+    btn.onclick = showLoginPanel;
   }
 }
 
@@ -1943,4 +2134,43 @@ setPetState('gray', '你好呀，我是眨眨~点"开始护眼"吧', '等待启�
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(console.warn);
+}
+
+// ============ 登录态初始化 ============
+updateLoginButton();
+initAuthState();
+
+async function initAuthState() {
+  if (!supabase) { updateLoginButton(); return; }
+  // 恢复已有会话
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) {
+    currentUser = session.user;
+    console.log('[Auth] 已恢复登录:', getCurrentPhone());
+    updateLoginButton();
+    await loadUserSettingsFromCloud();
+  }
+  // 监听登录/登出变化
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    console.log('[Auth] 状态变化:', event);
+    if (session?.user) {
+      currentUser = session.user;
+      updateLoginButton();
+      if (event === 'SIGNED_IN') {
+        const restored = await loadUserSettingsFromCloud();
+        if (restored) {
+          setBubble('欢迎回来，配置已从云端恢复');
+          speak('欢迎回来，你的AI配置已恢复');
+        } else {
+          setBubble('登录成功，配置已自动同步');
+        }
+      }
+    } else {
+      currentUser = null;
+      updateLoginButton();
+      if (event === 'SIGNED_OUT') {
+        setBubble('已退出登录，配置仅保存在本地');
+      }
+    }
+  });
 }
