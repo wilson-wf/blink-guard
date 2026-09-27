@@ -1,0 +1,16 @@
+# 大文件 / 中间产物 - 不入库
+*.apk
+*.apk.idsig
+*.hap
+*.zip
+*.idsig
+
+# 部署教程
+GitCode部署教程.md
+
+# 测试日志
+logtest.html
+
+# 系统文件
+.DS_Store
+Thumbs.db
