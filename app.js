@@ -8,7 +8,7 @@
  */
 
 // ============ 应用版本号（页面标题旁显示，方便确认是否最新版） ============
-const APP_VERSION = 'v35';
+const APP_VERSION = 'v36';
 
 // ============ Supabase 配置（放在最前，供日志推送等模块使用） ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
@@ -698,8 +698,9 @@ function initVoiceRecognition() {
 
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
       // 鸿蒙/国产浏览器常见：有 SpeechRecognition 对象但服务不可用
-      // 自动降级到 Whisper WASM 方案
-      console.log('[语音识别] 服务不可用，降级到 Whisper WASM');
+      // 标记为不可用，以后直接用 Whisper，不再重复失败
+      asrSupported = false;
+      console.log('[语音识别] 服务不可用，标记为不支持，以后直接用 Whisper');
       speak('语音识别服务不可用，正在切换到离线识别模式…');
       startWhisperRecognition();
     } else if (event.error === 'no-speech') {
@@ -707,7 +708,8 @@ function initVoiceRecognition() {
     } else if (event.error === 'audio-capture') {
       speak('麦克风被占用了，关闭其他录音应用再试');
     } else if (event.error === 'network') {
-      // 网络错误也降级到 Whisper
+      // 网络错误也降级到 Whisper，并标记不支持在线识别
+      asrSupported = false;
       console.log('[语音识别] 网络错误，降级到 Whisper WASM');
       speak('网络语音识别用不了，正在切换到离线识别模式…');
       startWhisperRecognition();
@@ -733,6 +735,7 @@ function initVoiceRecognition() {
 // ============ Whisper WASM 语音识别（纯前端降级方案，适配鸿蒙等不支持 SpeechRecognition 的浏览器） ============
 let whisperPipe = null;      // Whisper 识别管道（加载后缓存）
 let whisperLoading = false;  // 是否正在加载模型
+let whisperLoadFailed = false; // 模型是否加载失败过（避免重复尝试）
 let whisperRecorder = null;  // MediaRecorder 实例
 let whisperStream = null;    // 音频流
 const WHISPER_MODEL = 'Xenova/whisper-tiny'; // tiny 模型约40MB，速度快
@@ -741,7 +744,8 @@ const WHISPER_MODEL = 'Xenova/whisper-tiny'; // tiny 模型约40MB，速度快
 const TRANSFORMERS_CDNS = [
   'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3',
   'https://unpkg.com/@huggingface/transformers@3',
-  'https://cdn.staticfile.net/@huggingface/transformers@3',
+  'https://cdn1.tianli0.top/npm/@huggingface/transformers@3',
+  'https://cdn.akamai.steamstatic.com/@huggingface/transformers@3',
 ];
 
 // 动态加载 transformers 库，依次尝试多个 CDN
@@ -770,31 +774,52 @@ async function loadWhisperModel() {
     return whisperPipe;
   }
   whisperLoading = true;
-  setBubble('正在加载语音识别模型（约40MB，首次较慢）…');
+  setBubble('正在加载语音识别模型（约40MB，首次较慢，请耐心等待）…');
   console.log('[Whisper] 开始加载模型:', WHISPER_MODEL);
+
+  // 超时保护：90秒未加载完则报错（避免无限等待）
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('模型加载超时（90秒），请检查网络后重试')), 90000)
+  );
+
   try {
-    const { pipeline, env } = await loadTransformers();
+    const { pipeline, env } = await Promise.race([loadTransformers(), timeoutPromise]);
     env.allowLocalModels = false;
     env.useBrowserCache = true;
     // 使用国内镜像加速模型下载（HuggingFace 国内访问慢）
-    // remotePathTemplate 必须显式设为 {model}/resolve/{revision}/（末尾斜杠，不含 {file}）
-    // 否则 transformers.js v3 默认模板会导致 URL 中出现未替换的 {file}
     env.remoteHost = 'https://hf-mirror.com';
     env.remotePathTemplate = '{model}/resolve/{revision}/';
-    whisperPipe = await pipeline('automatic-speech-recognition', WHISPER_MODEL, {
-      progress_callback: (p) => {
-        if (p.status === 'progress') {
-          console.log('[Whisper] 下载进度:', Math.round(p.progress * 100) + '%');
+    whisperPipe = await Promise.race([
+      pipeline('automatic-speech-recognition', WHISPER_MODEL, {
+        progress_callback: (p) => {
+          if (p.status === 'progress') {
+            const pct = Math.round(p.progress * 100);
+            console.log('[Whisper] 下载进度:', pct + '%');
+            // 每 10% 更新一次气泡，避免频繁刷新
+            if (pct % 10 === 0) {
+              setBubble(`正在加载语音模型… ${pct}%`);
+            }
+          }
         }
-      }
-    });
+      }),
+      timeoutPromise
+    ]);
     console.log('[Whisper] 模型加载完成');
     setBubble('语音识别模型已就绪，可以说话啦！');
     return whisperPipe;
   } catch (e) {
     console.error('[Whisper] 模型加载失败:', e);
     whisperPipe = null;
-    setBubble('语音识别模型加载失败，用文字聊天吧');
+    whisperLoadFailed = true; // 标记加载失败，避免重复尝试
+    const msg = (e && e.message) || String(e);
+    // 区分错误类型，给用户更清晰的提示
+    if (msg.includes('超时') || msg.includes('timeout')) {
+      setBubble('模型加载超时，网络可能较慢。可改用"文字"按钮聊天，或稍后重试');
+    } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('fetch')) {
+      setBubble('网络连接失败，无法下载语音模型。请检查网络后重试，或用"文字"按钮聊天');
+    } else {
+      setBubble('语音识别模型加载失败，用文字聊天吧（' + msg.slice(0, 30) + '）');
+    }
     throw e;
   } finally {
     whisperLoading = false;
@@ -819,6 +844,12 @@ async function audioBlobToWhisperInput(blob) {
 
 // 用 Whisper 进行语音识别
 async function startWhisperRecognition() {
+  // 如果之前加载失败过，直接提示用文字聊天，不再重复尝试
+  if (whisperLoadFailed && !whisperPipe) {
+    setBubble('语音模型之前加载失败了，请用"文字"按钮跟我聊天，或刷新页面后重试');
+    voiceBtn.textContent = '🎤 对话';
+    return;
+  }
   try {
     // 先加载模型
     const pipe = await loadWhisperModel();
@@ -1733,6 +1764,8 @@ voiceBtn.addEventListener('click', async () => {
       try { recognition.stop(); } catch (e) {}
       isListening = false;
       voiceBtn.textContent = '🎤 对话';
+      // 标记在线识别不可用，以后直接用 Whisper
+      asrSupported = false;
       speak('这个浏览器的语音识别不能用，正在切换到离线识别…');
       startWhisperRecognition();
     }, START_TIMEOUT);
