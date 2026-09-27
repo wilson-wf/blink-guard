@@ -8,7 +8,7 @@
  */
 
 // ============ 应用版本号（页面标题旁显示，方便确认是否最新版） ============
-const APP_VERSION = 'v37';
+const APP_VERSION = 'v38';
 
 // ============ Supabase 配置（放在最前，供日志推送等模块使用） ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
@@ -2414,7 +2414,7 @@ async function initPose() {
 const MEDIAPIPE_CDNS = [
   'https://cdn.jsdelivr.net/npm/@mediapipe/',
   'https://unpkg.com/@mediapipe/',
-  'https://cdn.staticfile.net/@mediapipe/',
+  'https://cdn1.tianli0.top/npm/@mediapipe/',
 ];
 
 function ensureMediaPipeLoaded() {
@@ -2841,3 +2841,83 @@ async function initAuthState() {
     }
   });
 }
+
+// ============ 多平台下载：系统检测 + 下载面板 ============
+function detectPlatform() {
+  const ua = navigator.userAgent || '';
+  if (/HarmonyOS|OpenHarmony/i.test(ua)) return 'harmony';
+  if (/Android/i.test(ua)) return 'android';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'ios';
+  if (/Windows/i.test(ua)) return 'windows';
+  if (/Mac/i.test(ua)) return 'mac';
+  if (/Linux/i.test(ua)) return 'linux';
+  return 'unknown';
+}
+
+const PLATFORM_NAMES = {
+  harmony: '鸿蒙', android: 'Android', ios: 'iOS',
+  windows: 'Windows', mac: 'macOS', linux: 'Linux', unknown: '未知'
+};
+
+const DOWNLOAD_OPTIONS = [
+  {
+    platform: 'android', name: 'Android', icon: '🤖',
+    desc: '直接安装 APK', file: './blinkguard-v4.apk',
+    downloadName: 'blinkguard-v4.apk', tag: '推荐'
+  },
+  {
+    platform: 'harmony', name: '鸿蒙', icon: '🌀',
+    desc: 'DevEco Studio 构建 HAP', file: './BlinkGuard-鸿蒙版.zip',
+    downloadName: 'BlinkGuard-鸿蒙版.zip', tag: '推荐'
+  },
+  {
+    platform: 'ios', name: 'iOS', icon: '🍎',
+    desc: 'Xcode 构建安装', file: './BlinkGuard-iOS版.zip',
+    downloadName: 'BlinkGuard-iOS版.zip', tag: '推荐'
+  }
+];
+
+function showDownloadModal() {
+  const platform = detectPlatform();
+  const modal = document.getElementById('downloadModal');
+  const detectedEl = document.getElementById('detectedPlatform');
+  const optionsEl = document.getElementById('downloadOptions');
+
+  detectedEl.innerHTML = `🖥️ 检测到你的系统：<b>${PLATFORM_NAMES[platform]}</b>`;
+
+  // 渲染下载选项，当前系统的排第一并高亮
+  const sorted = [...DOWNLOAD_OPTIONS].sort((a, b) => {
+    if (a.platform === platform) return -1;
+    if (b.platform === platform) return 1;
+    return 0;
+  });
+
+  optionsEl.innerHTML = sorted.map(opt => {
+    const isCurrent = opt.platform === platform;
+    const tagHtml = isCurrent ? `<span style="background:#4CAF50;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px;">当前设备</span>` : '';
+    const borderColor = isCurrent ? '#4CAF50' : '#e0e0e0';
+    return `
+      <a href="${opt.file}" download="${opt.downloadName}" 
+         style="display:flex;align-items:center;padding:14px;border:2px solid ${borderColor};border-radius:12px;text-decoration:none;color:#333;background:${isCurrent ? '#f1f8e9' : '#fafafa'};">
+        <span style="font-size:32px;margin-right:12px;">${opt.icon}</span>
+        <div style="flex:1;">
+          <div style="font-weight:bold;font-size:16px;">${opt.name}版${tagHtml}</div>
+          <div style="font-size:13px;color:#666;margin-top:2px;">${opt.desc}</div>
+        </div>
+        <span style="background:${isCurrent ? '#4CAF50' : '#2196F3'};color:#fff;padding:8px 16px;border-radius:20px;font-size:14px;">下载</span>
+      </a>
+    `;
+  }).join('');
+
+  modal.style.display = 'flex';
+}
+
+document.getElementById('downloadAppBtn')?.addEventListener('click', showDownloadModal);
+document.getElementById('closeDownloadModal')?.addEventListener('click', () => {
+  document.getElementById('downloadModal').style.display = 'none';
+});
+document.getElementById('downloadModal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'downloadModal') {
+    document.getElementById('downloadModal').style.display = 'none';
+  }
+});
