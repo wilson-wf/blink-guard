@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>眨眨 · 远程查看</title>
+  <title>眨眨 · 家长远程查看</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -21,27 +21,25 @@
     }
     .header h1 { font-size: 18px; color: #4FC3F7; }
     .header .sub { font-size: 12px; color: #999; margin-top: 4px; }
-    .connect-box {
+    .panel {
       background: #2a2a2a;
       border-radius: 12px;
       padding: 20px;
       margin-bottom: 16px;
     }
-    .connect-box input {
+    .panel input {
       width: 100%;
       padding: 12px;
-      font-size: 18px;
-      text-align: center;
-      letter-spacing: 2px;
+      font-size: 16px;
       border: 2px solid #4FC3F7;
       background: #1a1a1a;
       color: #fff;
       border-radius: 8px;
-      text-transform: uppercase;
+      margin-bottom: 10px;
+      box-sizing: border-box;
     }
-    .connect-box button {
+    .panel button {
       width: 100%;
-      margin-top: 12px;
       padding: 12px;
       font-size: 16px;
       background: #4CAF50;
@@ -51,10 +49,17 @@
       cursor: pointer;
       font-weight: bold;
     }
-    .connect-box button:disabled {
+    .panel button:disabled {
       background: #555;
       cursor: not-allowed;
     }
+    .panel .alt {
+      text-align: center;
+      margin-top: 12px;
+      font-size: 12px;
+      color: #888;
+    }
+    .panel .alt a { color: #4FC3F7; cursor: pointer; text-decoration: underline; }
     .status {
       text-align: center;
       padding: 8px;
@@ -64,6 +69,7 @@
     }
     .status.connected { color: #4CAF50; }
     .status.error { color: #f44336; }
+    .status.loading { color: #FF9800; }
     .preview-box {
       background: #000;
       border-radius: 8px;
@@ -73,15 +79,17 @@
       justify-content: center;
       margin-bottom: 12px;
       position: relative;
+      overflow: hidden;
     }
     .preview-box img {
       max-width: 100%;
       max-height: 100%;
-      border-radius: 8px;
     }
     .preview-box .placeholder {
       color: #555;
       font-size: 13px;
+      text-align: center;
+      padding: 20px;
     }
     .preview-box .ts {
       position: absolute;
@@ -127,6 +135,17 @@
       border-radius: 8px;
       font-size: 14px;
       cursor: pointer;
+      margin-bottom: 8px;
+    }
+    .logout-btn {
+      width: 100%;
+      padding: 10px;
+      background: transparent;
+      color: #888;
+      border: 1px solid #444;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
     }
     .tips {
       font-size: 11px;
@@ -136,23 +155,50 @@
       line-height: 1.6;
     }
     a { color: #4FC3F7; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>👁 眨眨 · 远程查看</h1>
-    <div class="sub">家长端 - 输入配对码查看孩子的摄像头画面和专注度</div>
+    <h1>👁 眨眨 · 家长远程查看</h1>
+    <div class="sub">用孩子端绑定的手机号登录，即可实时查看</div>
   </div>
 
-  <div class="connect-box" id="connectBox">
-    <input id="pairCode" type="text" placeholder="输入配对码 (如 BGAB12)" maxlength="6" />
-    <button id="connectBtn">连接查看</button>
+  <!-- 登录面板 -->
+  <div class="panel" id="loginPanel">
+    <input id="loginPhone" type="tel" placeholder="手机号" maxlength="11" />
+    <input id="loginPwd" type="password" placeholder="密码（孩子端设置的密码）" />
+    <button id="loginBtn">登录 / 注册</button>
+    <p id="loginMsg" style="font-size:12px;color:#999;margin:8px 0 0;min-height:16px;"></p>
+    <div class="alt">
+      没有配对码？<a id="showPairMode">用配对码连接</a>
+    </div>
   </div>
 
-  <div class="status" id="status">未连接</div>
+  <!-- 配对码面板（备用） -->
+  <div class="panel hidden" id="pairPanel">
+    <input id="pairCode" type="text" placeholder="输入配对码 (如 BGAB12)" maxlength="6" style="text-transform:uppercase;letter-spacing:2px;text-align:center;" />
+    <button id="pairBtn">配对连接</button>
+    <div class="alt">
+      <a id="showLoginMode">返回手机号登录</a>
+    </div>
+  </div>
+
+  <!-- 已登录信息 -->
+  <div class="panel hidden" id="userPanel">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:12px;color:#999;">已登录手机号</div>
+        <div id="userPhone" style="font-size:18px;font-weight:bold;color:#4FC3F7;"></div>
+      </div>
+      <button id="logoutBtn" class="logout-btn" style="width:auto;">退出</button>
+    </div>
+  </div>
+
+  <div class="status" id="status">请先登录</div>
 
   <div class="preview-box" id="previewBox">
-    <div class="placeholder">连接后显示画面</div>
+    <div class="placeholder">登录后自动连接孩子设备<br>孩子端需打开监控并登录同一手机号</div>
   </div>
 
   <div class="stats-grid">
@@ -177,27 +223,20 @@
   <button class="refresh-btn" id="refreshBtn">立即刷新</button>
 
   <div class="tips">
-    💡 配对码在被监控手机的"📡 远程"按钮里生成<br>
-    点击"立即刷新"获取最新画面和统计<br>
+    💡 在孩子手机上用家长手机号登录「眨眨」，即可自动绑定<br>
+    本页面用同一手机号登录后自动连接，无需配对码<br>
     <a href="./">返回主应用</a>
   </div>
 
   <script>
+    const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_F1qdhcIQgN78C7QdXEqN8Q_IU7E55rY';
+    let supabaseClient = null;
+    let currentUser = null;
     let peer = null;
     let conn = null;
-
-    // 加载 PeerJS
-    function loadPeerJS() {
-      return new Promise((resolve, reject) => {
-        if (window.Peer) return resolve();
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
-        s.async = true;
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('PeerJS 加载失败'));
-        document.head.appendChild(s);
-      });
-    }
+    let rtChannel = null;
+    let kidPeerId = null;
 
     function setStatus(msg, type) {
       const el = document.getElementById('status');
@@ -218,95 +257,241 @@
       box.innerHTML = '<img src="' + dataUrl + '" alt="摄像头画面" /><div class="ts">' + new Date(ts).toLocaleTimeString() + '</div>';
     }
 
-    async function connect() {
-      const code = document.getElementById('pairCode').value.trim().toUpperCase();
-      if (!code) {
-        setStatus('请输入配对码', 'error');
-        return;
-      }
-      const btn = document.getElementById('connectBtn');
-      btn.disabled = true;
-      btn.textContent = '连接中...';
-      setStatus('正在加载通信库...');
-      try {
-        await loadPeerJS();
-      } catch (e) {
-        setStatus('通信库加载失败', 'error');
-        btn.disabled = false;
-        btn.textContent = '连接查看';
-        return;
-      }
+    function showUserPanel() {
+      const phone = (currentUser?.email || '').replace('@blink.local', '');
+      document.getElementById('userPhone').textContent = phone;
+      document.getElementById('loginPanel').classList.add('hidden');
+      document.getElementById('pairPanel').classList.add('hidden');
+      document.getElementById('userPanel').classList.remove('hidden');
+    }
 
-      setStatus('正在建立连接...');
-      // 用随机ID作为查看端
-      peer = new Peer('viewer-' + Math.random().toString(36).substr(2, 8), {
-        debug: 1,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-          ]
-        }
-      });
+    function showLoginPanel() {
+      document.getElementById('loginPanel').classList.remove('hidden');
+      document.getElementById('pairPanel').classList.add('hidden');
+      document.getElementById('userPanel').classList.add('hidden');
+    }
 
-      peer.on('open', () => {
-        setStatus('正在连接被监控端...');
-        conn = peer.connect(code, { reliable: true });
-        conn.on('open', () => {
-          setStatus('已连接，正在获取画面...', 'connected');
-          btn.textContent = '已连接';
-          // 请求初始数据
-          conn.send({ type: 'cmd', cmd: 'getStats' });
-          conn.send({ type: 'cmd', cmd: 'snapshot' });
-        });
-        conn.on('data', (msg) => {
-          if (!msg) return;
-          if (msg.type === 'stats') {
-            updateStats(msg.data);
-            setStatus('已连接 · ' + (msg.version || ''), 'connected');
-          } else if (msg.type === 'snapshot') {
-            updateSnapshot(msg.data, msg.ts);
-          }
-        });
-        conn.on('close', () => {
-          setStatus('连接已断开', 'error');
-          btn.disabled = false;
-          btn.textContent = '连接查看';
-        });
-        conn.on('error', (e) => {
-          setStatus('连接错误: ' + (e.message || e), 'error');
-          btn.disabled = false;
-          btn.textContent = '连接查看';
-        });
-      });
+    function showPairPanel() {
+      document.getElementById('pairPanel').classList.remove('hidden');
+      document.getElementById('loginPanel').classList.add('hidden');
+      document.getElementById('userPanel').classList.add('hidden');
+    }
 
-      peer.on('error', (err) => {
-        console.warn('peer error', err);
-        if (err.type === 'peer-unavailable') {
-          setStatus('配对码无效或被监控端不在线', 'error');
-        } else {
-          setStatus('错误: ' + err.type, 'error');
-        }
-        btn.disabled = false;
-        btn.textContent = '连接查看';
+    // 加载 Supabase
+    function loadSupabase() {
+      return new Promise((resolve, reject) => {
+        if (window.supabase) return resolve();
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Supabase 加载失败'));
+        document.head.appendChild(s);
       });
     }
 
-    document.getElementById('connectBtn').addEventListener('click', connect);
-    document.getElementById('refreshBtn').addEventListener('click', () => {
-      if (conn && conn.open) {
+    // 加载 PeerJS
+    function loadPeerJS() {
+      return new Promise((resolve, reject) => {
+        if (window.Peer) return resolve();
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('PeerJS 加载失败'));
+        document.head.appendChild(s);
+      });
+    }
+
+    function setLoginMsg(text, color) {
+      const el = document.getElementById('loginMsg');
+      if (el) { el.textContent = text; el.style.color = color || '#999'; }
+    }
+
+    // 通过 Supabase Realtime 找到孩子的 peer_id 并连接
+    async function connectViaRealtime() {
+      if (!supabaseClient || !currentUser) return;
+      const phone = (currentUser.email || '').replace('@blink.local', '');
+      const channelName = 'bg:parent:' + phone;
+
+      // 清理旧频道
+      if (rtChannel) { try { supabaseClient.removeChannel(rtChannel); } catch(e){} rtChannel = null; }
+
+      setStatus('正在查找孩子设备...', 'loading');
+      await loadPeerJS();
+
+      // 家长端用随机 PeerJS id
+      if (!peer) {
+        peer = new Peer('viewer-' + Math.random().toString(36).substr(2, 8), {
+          debug: 1,
+          config: { iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+          ]}
+        });
+        peer.on('error', (err) => console.warn('peer error', err));
+      }
+
+      rtChannel = supabaseClient.channel(channelName);
+      rtChannel
+        .on('broadcast', { event: 'kid_online' }, (payload) => {
+          const p = payload.payload;
+          if (p?.peer_id) {
+            kidPeerId = p.peer_id;
+            console.log('[Remote] 收到孩子 peer_id:', kidPeerId);
+            setStatus('已发现孩子设备，正在连接...', 'loading');
+            connectToKid(kidPeerId);
+          }
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('[Remote] 已加入频道，请求孩子上报');
+            // 请求孩子上报 peer_id
+            rtChannel.send({
+              type: 'broadcast',
+              event: 'parent_wants',
+              payload: { ts: Date.now() }
+            }).catch(() => {});
+          }
+        });
+    }
+
+    // 连接孩子的 PeerJS
+    function connectToKid(peerId) {
+      if (conn) { try { conn.close(); } catch(e){} conn = null; }
+      conn = peer.connect(peerId, { reliable: true });
+      conn.on('open', () => {
+        setStatus('已连接，正在获取画面...', 'connected');
         conn.send({ type: 'cmd', cmd: 'getStats' });
         conn.send({ type: 'cmd', cmd: 'snapshot' });
-        setStatus('刷新中...', 'connected');
-      } else {
-        setStatus('请先连接', 'error');
-      }
-    });
+      });
+      conn.on('data', (msg) => {
+        if (!msg) return;
+        if (msg.type === 'stats') updateStats(msg.data);
+        else if (msg.type === 'snapshot') updateSnapshot(msg.data, msg.ts);
+      });
+      conn.on('close', () => {
+        setStatus('连接已断开，等待孩子设备...', 'error');
+        // 重新请求
+        setTimeout(() => {
+          if (rtChannel) rtChannel.send({ type:'broadcast', event:'parent_wants', payload:{ts:Date.now()} }).catch(()=>{});
+        }, 3000);
+      });
+      conn.on('error', (e) => setStatus('连接错误: ' + (e.message||e), 'error'));
+    }
 
-    // 回车连接
-    document.getElementById('pairCode').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') connect();
-    });
+    // 配对码模式（备用）
+    async function connectByPairCode() {
+      const code = document.getElementById('pairCode').value.trim().toUpperCase();
+      if (!code) { setStatus('请输入配对码', 'error'); return; }
+      await loadPeerJS();
+      if (!peer) {
+        peer = new Peer('viewer-' + Math.random().toString(36).substr(2, 8), {
+          debug: 1,
+          config: { iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+          ]}
+        });
+      }
+      setStatus('正在连接配对码 ' + code + '...', 'loading');
+      peer.on('open', () => connectToKid(code));
+      peer.on('error', (err) => {
+        if (err.type === 'peer-unavailable') setStatus('配对码无效或孩子设备不在线', 'error');
+        else setStatus('错误: ' + err.type, 'error');
+      });
+    }
+
+    // 登录
+    async function handleLogin() {
+      if (!supabaseClient) { setLoginMsg('服务未就绪', '#f44'); return; }
+      const phone = document.getElementById('loginPhone').value.trim().replace(/\D/g, '');
+      const pwd = document.getElementById('loginPwd').value;
+      if (!/^\d{11}$/.test(phone)) { setLoginMsg('请输入11位手机号', '#f44'); return; }
+      if (pwd.length < 6) { setLoginMsg('密码至少6位', '#f44'); return; }
+
+      const btn = document.getElementById('loginBtn');
+      btn.disabled = true; btn.textContent = '登录中...';
+      setLoginMsg('正在登录...', '#2196F3');
+
+      const email = phone + '@blink.local';
+      const { error: signInErr } = await supabaseClient.auth.signInWithPassword({ email, password: pwd });
+      if (!signInErr) {
+        setLoginMsg('登录成功！', '#4CAF50');
+        return;
+      }
+      // 新用户注册
+      setLoginMsg('新用户，正在注册...', '#2196F3');
+      const { error: signUpErr } = await supabaseClient.auth.signUp({ email, password: pwd });
+      btn.disabled = false; btn.textContent = '登录 / 注册';
+      if (signUpErr) {
+        setLoginMsg('注册失败：' + signUpErr.message, '#f44');
+        return;
+      }
+      setLoginMsg('注册成功，请再次点击登录', '#FF9800');
+    }
+
+    // 初始化
+    (async function init() {
+      try {
+        await loadSupabase();
+      } catch (e) {
+        setStatus('服务加载失败，请检查网络', 'error');
+        return;
+      }
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+      });
+
+      // 绑定登录按钮
+      document.getElementById('loginBtn').addEventListener('click', handleLogin);
+      document.getElementById('pairBtn').addEventListener('click', connectByPairCode);
+      document.getElementById('showPairMode').addEventListener('click', showPairPanel);
+      document.getElementById('showLoginMode').addEventListener('click', showLoginPanel);
+      document.getElementById('logoutBtn').addEventListener('click', async () => {
+        await supabaseClient.auth.signOut();
+      });
+
+      document.getElementById('refreshBtn').addEventListener('click', () => {
+        if (conn && conn.open) {
+          conn.send({ type: 'cmd', cmd: 'getStats' });
+          conn.send({ type: 'cmd', cmd: 'snapshot' });
+          setStatus('刷新中...', 'connected');
+        } else if (rtChannel) {
+          rtChannel.send({ type:'broadcast', event:'parent_wants', payload:{ts:Date.now()} }).catch(()=>{});
+        } else {
+          setStatus('请先登录', 'error');
+        }
+      });
+
+      document.getElementById('pairCode').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') connectByPairCode();
+      });
+
+      // 恢复登录态
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session && session.user) {
+        currentUser = session.user;
+        showUserPanel();
+        connectViaRealtime();
+      }
+
+      // 监听登录状态
+      supabaseClient.auth.onAuthStateChange(async (event, session) => {
+        if (session && session.user) {
+          currentUser = session.user;
+          if (event === 'SIGNED_IN') {
+            showUserPanel();
+            connectViaRealtime();
+          }
+        } else {
+          currentUser = null;
+          showLoginPanel();
+          setStatus('已退出登录', 'error');
+          if (rtChannel) { try { supabaseClient.removeChannel(rtChannel); } catch(e){} rtChannel = null; }
+        }
+      });
+    })();
   </script>
 </body>
 </html>

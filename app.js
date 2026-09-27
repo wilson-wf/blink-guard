@@ -3299,6 +3299,8 @@ async function initAuthState() {
     console.log('[Auth] 已恢复登录:', getCurrentPhone());
     updateLoginButton();
     await loadUserSettingsFromCloud();
+    // 已登录则自动启动远程绑定（等监控启动后 peerHost 会广播 peer_id）
+    ensureRemoteHostStarted();
   }
   // 监听登录/登出变化
   supabaseClient.auth.onAuthStateChange(async (event, session) => {
@@ -3314,6 +3316,8 @@ async function initAuthState() {
         } else {
           setBubble('登录成功，配置已自动同步');
         }
+        // 登录后启动远程主机，绑定手机号，家长用同号登录即可查看
+        ensureRemoteHostStarted();
       }
     } else {
       currentUser = null;
@@ -3496,11 +3500,13 @@ const focusTracker = {
   }
 };
 
-// ============ 远程监控（PeerJS P2P） ============
-// 使用 PeerJS 公共信令服务器，无需自建后端
+// ============ 远程监控（PeerJS P2P + Supabase Realtime 手机号绑定） ============
+// 孩子端登录家长手机号后，自动通过 Realtime 频道广播 peer_id
+// 家长端用同手机号登录 remote.html，自动找到孩子设备并连接
 let peerHost = null;       // 被监控端的 Peer 实例
 let peerConn = null;       // 与远程查看端的连接
-let remotePairCode = '';   // 配对码（短ID）
+let remotePairCode = '';   // 配对码（短ID，未登录时的备用方案）
+let rtChannel = null;      // Supabase Realtime 频道（手机号绑定用）
 
 // 懒加载 PeerJS
 function ensurePeerJSLoaded() {
@@ -3546,7 +3552,9 @@ async function startRemoteHost() {
 
     peerHost.on('open', (id) => {
       console.log('[Remote] host 已就绪, id=', id);
-      setBubble('家长可输入配对码查看：' + remotePairCode);
+      setBubble('远程已就绪');
+      // 登录状态下通过 Realtime 用手机号广播 peer_id（家长免配对码）
+      bindRemoteToPhone(id);
     });
 
     peerHost.on('connection', (conn) => {
@@ -3589,6 +3597,59 @@ async function startRemoteHost() {
   } catch (e) {
     console.warn('[Remote] 启动失败:', e);
     setBubble('远程查看未启用（不影响本地监控）');
+  }
+}
+
+// 通过 Supabase Realtime 用手机号绑定：广播孩子的 peer_id，家长用同手机号登录即可发现
+async function bindRemoteToPhone(peerId) {
+  if (!supabaseClient || !currentUser) {
+    console.log('[Remote] 未登录，仅使用配对码模式');
+    setBubble('远程已就绪（配对码: ' + remotePairCode + '）');
+    return;
+  }
+  const phone = getCurrentPhone();
+  if (!phone) return;
+
+  // 清理旧频道
+  if (rtChannel) { try { supabaseClient.removeChannel(rtChannel); } catch(e){} rtChannel = null; }
+
+  const channelName = 'bg:parent:' + phone;
+  rtChannel = supabaseClient.channel(channelName);
+  rtChannel
+    .on('broadcast', { event: 'parent_wants' }, (payload) => {
+      // 家长端请求孩子上报 peer_id
+      console.log('[Remote] 家长请求连接，上报 peer_id');
+      rtChannel.send({
+        type: 'broadcast',
+        event: 'kid_online',
+        payload: { peer_id: peerId, device_name: '眨眨守护', ts: Date.now() }
+      }).catch(() => {});
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        console.log('[Remote] Realtime 频道已绑定手机号:', phone);
+        setBubble('已绑定家长手机号 ' + phone + '，家长登录即可查看');
+        // 立即广播一次，让已在线的家长收到
+        rtChannel.send({
+          type: 'broadcast',
+          event: 'kid_online',
+          payload: { peer_id: peerId, device_name: '眨眨守护', ts: Date.now() }
+        }).catch(() => {});
+      }
+    });
+}
+
+// 幂等启动远程主机（已启动则跳过，用于登录后自动绑定）
+async function ensureRemoteHostStarted() {
+  if (peerHost) {
+    // 已启动但可能是未登录时启动的，重新绑定手机号
+    if (currentUser && peerHost.id) bindRemoteToPhone(peerHost.id);
+    return;
+  }
+  try {
+    await startRemoteHost();
+  } catch (e) {
+    console.warn('[Remote] 自动启动失败:', e);
   }
 }
 
@@ -3716,11 +3777,18 @@ function addRemoteButton() {
   btn.textContent = '📡 远程';
   btn.title = '开启远程查看，家长可在外部手机连接';
   btn.addEventListener('click', async () => {
+    if (!currentUser) {
+      // 未登录：引导家长登录手机号绑定（免配对码）
+      if (confirm('用家长手机号登录后，家长端用同号登录即可直接查看，无需配对码。\n\n是否现在登录？')) {
+        showLoginPanel();
+      }
+      return;
+    }
     if (peerHost) {
-      // 已开启，显示配对码
-      setBubble('配对码: ' + remotePairCode + '（家长打开 remote.html 输入）');
-      const show = confirm('远程查看已开启\n\n配对码：' + remotePairCode + '\n\n家长访问:\n' + location.origin + '/remote.html\n输入配对码即可连接查看');
-      if (show) navigator.clipboard?.writeText(remotePairCode).catch(()=>{});
+      // 已开启
+      const phone = getCurrentPhone();
+      setBubble('已绑定家长手机号 ' + phone + '，家长登录即可查看');
+      alert('远程查看已开启\n\n已绑定家长手机号：' + phone + '\n\n家长访问：\n' + location.origin + '/remote.html\n用相同手机号登录即可直接查看画面和专注度\n\n（备用配对码：' + remotePairCode + '）');
     } else {
       btn.textContent = '📡 连接中...';
       await startRemoteHost();
