@@ -8,7 +8,7 @@
  */
 
 // ============ 应用版本号（页面标题旁显示，方便确认是否最新版） ============
-const APP_VERSION = 'v39';
+const APP_VERSION = 'v42';
 
 // ============ Supabase 配置（放在最前，供日志推送等模块使用） ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
@@ -3412,3 +3412,374 @@ document.getElementById('downloadModal')?.addEventListener('click', (e) => {
     document.getElementById('downloadModal').style.display = 'none';
   }
 });
+
+// ============================================================================
+// v42 新增：自动启动监控 + 专注度统计 + 远程查看能力（PeerJS P2P）
+// 设计原则：默认关闭语音交互、降低工作负载、家长可远程查看
+// ============================================================================
+
+// ============ 性能优化：降帧率 + 轻量检测 ============
+// 用节流控制 pose.send 频率，减少 CPU 占用
+const PERF_CONFIG = {
+  DETECT_FPS: 8,                  // 检测帧率从默认 30 降到 8（每125ms一次）
+  REMOTE_REPORT_INTERVAL: 2000,   // 远程统计上报间隔
+  FOCUS_WINDOW_MS: 60 * 60 * 1000,// 专注度统计窗口=1小时
+  FOCUS_GOOD_THRESHOLD: 0.7,      // 专注率>=70%算"专注时段"
+};
+let _lastPoseSend = 0;
+const _origOnFrame = async () => {
+  const now = Date.now();
+  const interval = 1000 / PERF_CONFIG.DETECT_FPS;
+  if (now - _lastPoseSend < interval) return;
+  _lastPoseSend = now;
+  if (pose) await pose.send({ image: video });
+};
+
+// ============ 专注度统计（1小时滚动窗口） ============
+const focusTracker = {
+  // 每条记录: { t: 时间戳, good: true/false }
+  samples: [],
+  // 时段统计：每分钟一个桶 { minuteTs, goodSec, badSec }
+  buckets: new Map(),  // key: 分钟时间戳, value: {good, bad}
+
+  record(good) {
+    const now = Date.now();
+    this.samples.push({ t: now, good });
+    // 清理超过1小时的样本
+    const cutoff = now - PERF_CONFIG.FOCUS_WINDOW_MS;
+    while (this.samples.length && this.samples[0].t < cutoff) this.samples.shift();
+
+    // 按分钟分桶
+    const minuteTs = Math.floor(now / 60000) * 60000;
+    let b = this.buckets.get(minuteTs);
+    if (!b) { b = { good: 0, bad: 0 }; this.buckets.set(minuteTs, b); }
+    if (good) b.good++; else b.bad++;
+
+    // 清理超过1小时的桶
+    for (const [k] of this.buckets) {
+      if (Number(k) < cutoff) this.buckets.delete(k);
+    }
+  },
+
+  getReport() {
+    const total = this.samples.length;
+    const good = this.samples.filter(s => s.good).length;
+    const bad = total - good;
+    const focusRate = total > 0 ? (good / total) : 0;
+    // 计算连续专注段（连续>=30秒good视为一段专注）
+    let focusSessions = 0;
+    let streakStart = null;
+    for (let i = 0; i < this.samples.length; i++) {
+      const s = this.samples[i];
+      if (s.good) {
+        if (streakStart === null) streakStart = s.t;
+        const streakLen = s.t - streakStart;
+        if (streakLen >= 30000) {
+          // 标记为已计数（避免重复）
+          if (i === this.samples.length - 1 || !this.samples[i+1].good) {
+            focusSessions++;
+            streakStart = null;
+          }
+        }
+      } else {
+        streakStart = null;
+      }
+    }
+    return {
+      totalSamples: total,
+      goodCount: good,
+      badCount: bad,
+      focusRate: Math.round(focusRate * 100),  // 百分比
+      focusSessions,                           // 专注段数
+      durationMin: Math.round((Date.now() - (this.samples[0]?.t || Date.now())) / 60000),
+    };
+  }
+};
+
+// ============ 远程监控（PeerJS P2P） ============
+// 使用 PeerJS 公共信令服务器，无需自建后端
+let peerHost = null;       // 被监控端的 Peer 实例
+let peerConn = null;       // 与远程查看端的连接
+let remotePairCode = '';   // 配对码（短ID）
+
+// 懒加载 PeerJS
+function ensurePeerJSLoaded() {
+  if (window.Peer) return Promise.resolve();
+  if (ensurePeerJSLoaded._p) return ensurePeerJSLoaded._p;
+  ensurePeerJSLoaded._p = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('PeerJS 加载失败'));
+    document.head.appendChild(s);
+  });
+  return ensurePeerJSLoaded._p;
+}
+
+// 生成短配对码（4位数字+字母，便于手机输入）
+function genPairCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return 'BG' + s;  // 前缀BG（BlinkGuard）
+}
+
+// 启动远程监控 host 模式（被监控端）
+async function startRemoteHost() {
+  try {
+    await ensurePeerJSLoaded();
+    if (peerHost) return;  // 已启动
+    remotePairCode = genPairCode();
+    setBubble('配对码: ' + remotePairCode + '（家长在远程页面输入）');
+    console.log('[Remote] 启动 host, 配对码:', remotePairCode);
+
+    peerHost = new Peer(remotePairCode, {
+      debug: 1,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ]
+      }
+    });
+
+    peerHost.on('open', (id) => {
+      console.log('[Remote] host 已就绪, id=', id);
+      setBubble('家长可输入配对码查看：' + remotePairCode);
+    });
+
+    peerHost.on('connection', (conn) => {
+      console.log('[Remote] 远程端连接:', conn.peer);
+      peerConn = conn;
+      conn.on('open', () => {
+        setBubble('家长已连接，正在共享画面...');
+        // 发送初始统计
+        conn.send({ type: 'stats', data: focusTracker.getReport(), version: APP_VERSION });
+      });
+      conn.on('data', (msg) => {
+        // 处理远程指令
+        if (msg?.type === 'cmd' && msg.cmd === 'getStats') {
+          conn.send({ type: 'stats', data: focusTracker.getReport(), version: APP_VERSION });
+        } else if (msg?.type === 'cmd' && msg.cmd === 'snapshot') {
+          // 发送一帧摄像头快照
+          sendVideoSnapshot(conn);
+        }
+      });
+      conn.on('close', () => {
+        console.log('[Remote] 远程端断开');
+        peerConn = null;
+        setBubble('家长离开了，继续监工~');
+      });
+      conn.on('error', (e) => console.warn('[Remote] conn error:', e));
+    });
+
+    peerHost.on('error', (err) => {
+      console.warn('[Remote] peer error:', err.type, err.message);
+      if (err.type === 'unavailable-id') {
+        // ID 已被占用，换一个
+        remotePairCode = genPairCode();
+        peerHost.destroy();
+        peerHost = null;
+        setTimeout(startRemoteHost, 500);
+      } else if (err.type === 'network' || err.type === 'server-error') {
+        setBubble('远程服务暂时不可用，监控本地继续');
+      }
+    });
+  } catch (e) {
+    console.warn('[Remote] 启动失败:', e);
+    setBubble('远程查看未启用（不影响本地监控）');
+  }
+}
+
+// 发送视频快照（JPEG，降低带宽）
+function sendVideoSnapshot(conn) {
+  if (!video || !video.videoWidth) return;
+  try {
+    const snap = document.createElement('canvas');
+    snap.width = 320; snap.height = 240;
+    const sctx = snap.getContext('2d');
+    sctx.drawImage(video, 0, 0, snap.width, snap.height);
+    const dataUrl = snap.toDataURL('image/jpeg', 0.5);
+    conn.send({ type: 'snapshot', data: dataUrl, ts: Date.now() });
+  } catch (e) { console.warn('[Remote] 快照失败:', e); }
+}
+
+// 周期性向远程端推送统计和快照
+let _remoteReportTimer = null;
+function startRemoteReportLoop() {
+  if (_remoteReportTimer) clearInterval(_remoteReportTimer);
+  _remoteReportTimer = setInterval(() => {
+    if (!peerConn || !peerConn.open) return;
+    try {
+      peerConn.send({ type: 'stats', data: focusTracker.getReport(), version: APP_VERSION });
+      sendVideoSnapshot(peerConn);
+    } catch (e) { /* 忽略 */ }
+  }, PERF_CONFIG.REMOTE_REPORT_INTERVAL);
+}
+
+// ============ 在 onResults 中调用专注度统计 ============
+// 通过包装原 onResults 实现，避免修改原函数
+const _origOnResults = onResults;
+onResults = function(results) {
+  // 调用原逻辑
+  _origOnResults.call(this, results);
+  // 记录专注度（只在运行中且非暂停时记录）
+  if (state.running && !state.paused) {
+    // 判断本帧是否"专注"：未触发不良姿态 + 距离正常
+    const good = !results?.poseLandmarks ? true :
+      (state.badHoldStart === 0);  // 未处于不良持续状态视为good
+    focusTracker.record(good);
+  }
+};
+
+// ============ 自动启动监控 ============
+// 页面加载完成后自动启动，无需手动点"开始护眼"
+async function autoStartMonitor() {
+  console.log('[AutoStart] 启动监控');
+  setBubble('眨眨自动上线啦~ 正在准备摄像头');
+  try {
+    if (!pose) {
+      loadingEl.style.display = 'flex';
+      await initPose();
+      await startCameraWithThrottle();
+    }
+    state.running = true;
+    state.paused = false;
+    state.workSeconds = 0;
+    state.badCount = 0;
+    state.closeCount = 0;
+    state.restCount = 0;
+    badCountEl.textContent = 0;
+    closeCountEl.textContent = 0;
+    restCountEl.textContent = 0;
+    // 跳过校准，直接进入监控（采用通用基线，降低门槛）
+    state.calibrating = false;
+    state.calibrated = true;
+    setPetState('green', '眨眨在监工啦~ 坐端正哦', '自动监控中');
+    startTimer();
+    startRemoteReportLoop();
+  } catch (e) {
+    console.error('[AutoStart] 启动失败:', e);
+    loadingEl.style.display = 'none';
+    noCameraEl.style.display = 'flex';
+    setBubble('启动失败，请点"开始护眼"重试');
+  }
+}
+
+// 用节流版本的 onFrame 启动摄像头（降低帧率）
+async function startCameraWithThrottle() {
+  try {
+    camera = new Camera(video, {
+      onFrame: _origOnFrame,
+      width: CONFIG.CANVAS_W,
+      height: CONFIG.CANVAS_H,
+    });
+    await camera.start();
+    loadingEl.style.display = 'none';
+  } catch (err) {
+    console.error(err);
+    loadingEl.style.display = 'none';
+    noCameraEl.style.display = 'flex';
+  }
+}
+
+// ============ 语音交互默认关闭 ============
+// 在 DOMContentLoaded 后禁用语音自动启动，仅保留按钮手动唤醒
+(function disableVoiceByDefault() {
+  function apply() {
+    // 隐藏语音状态提示，避免误导
+    const vs = document.getElementById('voiceStatus');
+    if (vs) { vs.textContent = '🔇 语音已关闭（省电）'; vs.style.opacity = '0.5'; }
+    // 唤醒按钮仍可手动点
+    const wakeBtn = document.getElementById('wakeWordBtn');
+    if (wakeBtn) {
+      wakeBtn.title = '点击启用眨眨唤醒词（默认关闭以省电）';
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply);
+  } else {
+    apply();
+  }
+})();
+
+// ============ 远程查看入口按钮 ============
+function addRemoteButton() {
+  const header = document.querySelector('.topbar');
+  if (!header) return;
+  if (document.getElementById('remoteBtn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'remoteBtn';
+  btn.className = 'install-btn';
+  btn.style.cssText = 'background:#009688;';
+  btn.textContent = '📡 远程';
+  btn.title = '开启远程查看，家长可在外部手机连接';
+  btn.addEventListener('click', async () => {
+    if (peerHost) {
+      // 已开启，显示配对码
+      setBubble('配对码: ' + remotePairCode + '（家长打开 remote.html 输入）');
+      const show = confirm('远程查看已开启\n\n配对码：' + remotePairCode + '\n\n家长访问:\n' + location.origin + '/remote.html\n输入配对码即可连接查看');
+      if (show) navigator.clipboard?.writeText(remotePairCode).catch(()=>{});
+    } else {
+      btn.textContent = '📡 连接中...';
+      await startRemoteHost();
+      btn.textContent = '📡 远程(开)';
+    }
+  });
+  // 插入到唤醒按钮前面
+  const wakeBtn = document.getElementById('wakeWordBtn');
+  if (wakeBtn) header.insertBefore(btn, wakeBtn);
+  else header.appendChild(btn);
+}
+
+// ============ 自动启动入口 ============
+function setupAutoStart() {
+  addRemoteButton();
+  // 浏览器要求摄像头权限必须由用户手势触发
+  // 显示一个全屏启动遮罩，用户点任意位置即开始监控（一键启动）
+  showAutoStartOverlay();
+}
+
+function showAutoStartOverlay() {
+  // 避免重复创建
+  if (document.getElementById('autoStartOverlay')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'autoStartOverlay';
+  overlay.style.cssText = [
+    'position:fixed','inset:0','background:rgba(33,150,243,0.92)','z-index:99999',
+    'display:flex','flex-direction:column','align-items:center','justify-content:center',
+    'color:#fff','font-family:-apple-system,sans-serif','cursor:pointer',
+    'text-align:center','padding:24px'
+  ].join(';');
+  overlay.innerHTML = `
+    <div style="font-size:80px;margin-bottom:20px;animation:bounce 1.2s infinite;">👁</div>
+    <h2 style="font-size:24px;margin:0 0 8px;">眨眨已就位</h2>
+    <p style="font-size:15px;opacity:0.9;margin:0 0 32px;line-height:1.6;">
+      点击任意位置启动护眼监控<br>
+      <span style="font-size:12px;opacity:0.7;">（默认自动监控 + 语音已关闭省电）</span>
+    </p>
+    <div style="background:rgba(255,255,255,0.2);padding:14px 28px;border-radius:30px;font-size:16px;font-weight:bold;">
+      ▶ 一键启动
+    </div>
+    <p style="font-size:11px;opacity:0.6;margin-top:32px;">启动后随时点"📡 远程"开启家长查看</p>
+  `;
+  // 添加动画
+  if (!document.getElementById('autoStartAnim')) {
+    const style = document.createElement('style');
+    style.id = 'autoStartAnim';
+    style.textContent = '@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}';
+    document.head.appendChild(style);
+  }
+  overlay.addEventListener('click', () => {
+    overlay.style.display = 'none';
+    autoStartMonitor().catch(e => console.warn('[AutoStart] 失败:', e));
+  });
+  document.body.appendChild(overlay);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupAutoStart);
+} else {
+  setupAutoStart();
+}

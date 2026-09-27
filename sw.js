@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v41 唤醒词功能 */
-const CACHE_NAME = 'blink-guard-v41';
+/* 眨眨护眼 PWA Service Worker — v42 自动监控+远程查看 */
+const CACHE_NAME = 'blink-guard-v42';
 const ASSETS = [
   './',
   './index.html',
-  './style.css?v=41',
-  './app.js?v=41',
+  './style.css?v=42',
+  './app.js?v=42',
   './manifest.json',
 ];
 

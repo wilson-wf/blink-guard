@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>眨眨 · 远程查看</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a1a;
+      color: #fff;
+      min-height: 100vh;
+      padding: 12px;
+    }
+    .header {
+      text-align: center;
+      padding: 12px 0 16px;
+      border-bottom: 1px solid #333;
+      margin-bottom: 16px;
+    }
+    .header h1 { font-size: 18px; color: #4FC3F7; }
+    .header .sub { font-size: 12px; color: #999; margin-top: 4px; }
+    .connect-box {
+      background: #2a2a2a;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .connect-box input {
+      width: 100%;
+      padding: 12px;
+      font-size: 18px;
+      text-align: center;
+      letter-spacing: 2px;
+      border: 2px solid #4FC3F7;
+      background: #1a1a1a;
+      color: #fff;
+      border-radius: 8px;
+      text-transform: uppercase;
+    }
+    .connect-box button {
+      width: 100%;
+      margin-top: 12px;
+      padding: 12px;
+      font-size: 16px;
+      background: #4CAF50;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .connect-box button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+    .status {
+      text-align: center;
+      padding: 8px;
+      margin: 8px 0;
+      font-size: 13px;
+      color: #aaa;
+    }
+    .status.connected { color: #4CAF50; }
+    .status.error { color: #f44336; }
+    .preview-box {
+      background: #000;
+      border-radius: 8px;
+      aspect-ratio: 4/3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .preview-box img {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 8px;
+    }
+    .preview-box .placeholder {
+      color: #555;
+      font-size: 13px;
+    }
+    .preview-box .ts {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .stat-card {
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+    }
+    .stat-card .label {
+      font-size: 11px;
+      color: #999;
+      margin-bottom: 4px;
+    }
+    .stat-card .value {
+      font-size: 22px;
+      font-weight: bold;
+      color: #4FC3F7;
+    }
+    .stat-card.good .value { color: #4CAF50; }
+    .stat-card.bad .value { color: #f44336; }
+    .stat-card .unit { font-size: 12px; color: #999; }
+    .refresh-btn {
+      width: 100%;
+      padding: 10px;
+      background: #2196F3;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .tips {
+      font-size: 11px;
+      color: #666;
+      text-align: center;
+      margin-top: 16px;
+      line-height: 1.6;
+    }
+    a { color: #4FC3F7; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>👁 眨眨 · 远程查看</h1>
+    <div class="sub">家长端 - 输入配对码查看孩子的摄像头画面和专注度</div>
+  </div>
+
+  <div class="connect-box" id="connectBox">
+    <input id="pairCode" type="text" placeholder="输入配对码 (如 BGAB12)" maxlength="6" />
+    <button id="connectBtn">连接查看</button>
+  </div>
+
+  <div class="status" id="status">未连接</div>
+
+  <div class="preview-box" id="previewBox">
+    <div class="placeholder">连接后显示画面</div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card good">
+      <div class="label">专注率</div>
+      <div class="value" id="focusRate">--<span class="unit">%</span></div>
+    </div>
+    <div class="stat-card">
+      <div class="label">监控时长</div>
+      <div class="value" id="duration">--<span class="unit">分</span></div>
+    </div>
+    <div class="stat-card good">
+      <div class="label">专注段数</div>
+      <div class="value" id="focusSessions">--</div>
+    </div>
+    <div class="stat-card bad">
+      <div class="label">不专注次数</div>
+      <div class="value" id="badCount">--</div>
+    </div>
+  </div>
+
+  <button class="refresh-btn" id="refreshBtn">立即刷新</button>
+
+  <div class="tips">
+    💡 配对码在被监控手机的"📡 远程"按钮里生成<br>
+    点击"立即刷新"获取最新画面和统计<br>
+    <a href="./">返回主应用</a>
+  </div>
+
+  <script>
+    let peer = null;
+    let conn = null;
+
+    // 加载 PeerJS
+    function loadPeerJS() {
+      return new Promise((resolve, reject) => {
+        if (window.Peer) return resolve();
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('PeerJS 加载失败'));
+        document.head.appendChild(s);
+      });
+    }
+
+    function setStatus(msg, type) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = 'status ' + (type || '');
+    }
+
+    function updateStats(data) {
+      if (!data) return;
+      document.getElementById('focusRate').innerHTML = (data.focusRate ?? 0) + '<span class="unit">%</span>';
+      document.getElementById('duration').innerHTML = (data.durationMin ?? 0) + '<span class="unit">分</span>';
+      document.getElementById('focusSessions').textContent = data.focusSessions ?? 0;
+      document.getElementById('badCount').textContent = data.badCount ?? 0;
+    }
+
+    function updateSnapshot(dataUrl, ts) {
+      const box = document.getElementById('previewBox');
+      box.innerHTML = '<img src="' + dataUrl + '" alt="摄像头画面" /><div class="ts">' + new Date(ts).toLocaleTimeString() + '</div>';
+    }
+
+    async function connect() {
+      const code = document.getElementById('pairCode').value.trim().toUpperCase();
+      if (!code) {
+        setStatus('请输入配对码', 'error');
+        return;
+      }
+      const btn = document.getElementById('connectBtn');
+      btn.disabled = true;
+      btn.textContent = '连接中...';
+      setStatus('正在加载通信库...');
+      try {
+        await loadPeerJS();
+      } catch (e) {
+        setStatus('通信库加载失败', 'error');
+        btn.disabled = false;
+        btn.textContent = '连接查看';
+        return;
+      }
+
+      setStatus('正在建立连接...');
+      // 用随机ID作为查看端
+      peer = new Peer('viewer-' + Math.random().toString(36).substr(2, 8), {
+        debug: 1,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+          ]
+        }
+      });
+
+      peer.on('open', () => {
+        setStatus('正在连接被监控端...');
+        conn = peer.connect(code, { reliable: true });
+        conn.on('open', () => {
+          setStatus('已连接，正在获取画面...', 'connected');
+          btn.textContent = '已连接';
+          // 请求初始数据
+          conn.send({ type: 'cmd', cmd: 'getStats' });
+          conn.send({ type: 'cmd', cmd: 'snapshot' });
+        });
+        conn.on('data', (msg) => {
+          if (!msg) return;
+          if (msg.type === 'stats') {
+            updateStats(msg.data);
+            setStatus('已连接 · ' + (msg.version || ''), 'connected');
+          } else if (msg.type === 'snapshot') {
+            updateSnapshot(msg.data, msg.ts);
+          }
+        });
+        conn.on('close', () => {
+          setStatus('连接已断开', 'error');
+          btn.disabled = false;
+          btn.textContent = '连接查看';
+        });
+        conn.on('error', (e) => {
+          setStatus('连接错误: ' + (e.message || e), 'error');
+          btn.disabled = false;
+          btn.textContent = '连接查看';
+        });
+      });
+
+      peer.on('error', (err) => {
+        console.warn('peer error', err);
+        if (err.type === 'peer-unavailable') {
+          setStatus('配对码无效或被监控端不在线', 'error');
+        } else {
+          setStatus('错误: ' + err.type, 'error');
+        }
+        btn.disabled = false;
+        btn.textContent = '连接查看';
+      });
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', connect);
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      if (conn && conn.open) {
+        conn.send({ type: 'cmd', cmd: 'getStats' });
+        conn.send({ type: 'cmd', cmd: 'snapshot' });
+        setStatus('刷新中...', 'connected');
+      } else {
+        setStatus('请先连接', 'error');
+      }
+    });
+
+    // 回车连接
+    document.getElementById('pairCode').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') connect();
+    });
+  </script>
+</body>
+</html>
