@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v34 页面显示版本号 */
-const CACHE_NAME = 'blink-guard-v34';
+/* 眨眨护眼 PWA Service Worker — v35 新增下载APK按钮 */
+const CACHE_NAME = 'blink-guard-v35';
 const ASSETS = [
   './',
   './index.html',
   './style.css?v=18',
-  './app.js?v=34',
+  './app.js?v=35',
   './manifest.json',
 ];
 
@@ -26,6 +26,12 @@ self.addEventListener('activate', (e) => {
 
 // 网络优先策略：先从网络拿最新，失败再用缓存
 self.addEventListener('fetch', (e) => {
+  // APK 等大文件不缓存，直接走网络
+  const url = e.request.url;
+  if (url.endsWith('.apk') || url.endsWith('.aab')) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
   e.respondWith(
     fetch(e.request)
       .then(res => {
