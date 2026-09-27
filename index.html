@@ -14,14 +14,27 @@
   <div id="app">
     <!-- 顶部状态栏 -->
     <header class="topbar">
-      <span class="title">👁 眨眨 · AI护眼小怪兽 <span id="versionTag" style="font-size:11px;color:#666;font-weight:normal;background:#e8f5e9;padding:1px 6px;border-radius:8px;">v37</span></span>
+      <span class="title">👁 眨眨 · AI护眼小怪兽 <span id="versionTag" style="font-size:11px;color:#666;font-weight:normal;background:#e8f5e9;padding:1px 6px;border-radius:8px;">v38</span></span>
       <div class="voice-status" id="voiceStatus">🔊 语音检测中…</div>
       <div class="voice-status" id="micStatus">🎤 检测中…</div>
       <button id="dressupBtn" class="install-btn" style="background:#FF9800;">🎨 打扮</button>
       <button id="loginBtn" class="install-btn" style="background:#4CAF50;">👤 登录</button>
       <button id="installBtn" class="install-btn" style="display:none;">安装</button>
-      <a href="./blinkguard-v4.apk" download="blinkguard-v4.apk" class="install-btn" style="background:#2196F3;text-decoration:none;display:inline-block;">📦 下载APK</a>
+      <button id="downloadAppBtn" class="install-btn" style="background:#2196F3;">📱 下载App</button>
     </header>
+
+    <!-- 多平台下载面板 -->
+    <div id="downloadModal" class="modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+      <div class="modal-content" style="background:#fff;border-radius:16px;padding:24px;max-width:400px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="margin:0;font-size:18px;color:#333;">📱 下载眨眨护眼</h3>
+          <button id="closeDownloadModal" style="background:none;border:none;font-size:24px;cursor:pointer;color:#999;">×</button>
+        </div>
+        <div id="detectedPlatform" style="background:#e8f5e9;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:14px;color:#2e7d32;"></div>
+        <div id="downloadOptions" style="display:flex;flex-direction:column;gap:12px;"></div>
+        <p style="font-size:12px;color:#999;margin-top:16px;text-align:center;">AI功能需联网，界面资源完全本地运行</p>
+      </div>
+    </div>
 
     <!-- 桌宠区域 -->
     <div class="pet-stage">
