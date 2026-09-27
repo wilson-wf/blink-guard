@@ -8,7 +8,7 @@
  */
 
 // ============ 应用版本号（页面标题旁显示，方便确认是否最新版） ============
-const APP_VERSION = 'v36';
+const APP_VERSION = 'v37';
 
 // ============ Supabase 配置（放在最前，供日志推送等模块使用） ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
@@ -544,9 +544,29 @@ function ttsDiagnose() {
   info.push(`speechEnabled: ${speechEnabled}`);
   info.push(``);
   info.push(`【语音识别(ASR)】`);
-  info.push(`SpeechRecognition: ${asrSupported ? '✅支持' : '❌不支持(用文字输入)'}`);
+  const hasSR = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  info.push(`SpeechRecognition API: ${hasSR ? '✅存在' : '❌不存在'}`);
+  info.push(`系统识别可用: ${asrSupported ? '✅是' : '❌否'}`);
   info.push(`麦克风权限: ${micPermission}`);
-  info.push(`当前声音风格: ${getVoiceStyle().label}`);
+  info.push(`系统识别失败次数: ${asrFailCount}`);
+  info.push(`离线模型状态: ${whisperPipe ? '✅已加载' : (whisperLoadFailed ? '❌加载失败' : '未加载')}`);
+  info.push(``);
+  info.push(`【当前语音识别策略】`);
+  if (asrSupported) {
+    info.push(`优先使用手机系统语音识别`);
+    info.push(`失败2次后自动切换到离线Whisper模型`);
+  } else if (whisperLoadFailed) {
+    info.push(`系统识别不可用，离线模型也加载失败`);
+    info.push(`建议用"💬文字"按钮聊天`);
+  } else {
+    info.push(`使用离线Whisper模型（需下载约40MB）`);
+  }
+  info.push(``);
+  info.push(`【如何开启系统语音识别】`);
+  info.push(`1. 允许麦克风权限`);
+  info.push(`2. 安卓：设置→应用→浏览器→权限→麦克风`);
+  info.push(`3. 鸿蒙：设置→应用→浏览器→权限→麦克风`);
+  info.push(`4. 确认手机有语音服务(小艺/Google语音)`);
   info.push(``);
   info.push(`【AI 大模型】`);
   const prov = LLM_PROVIDERS[getLlmProvider()];
@@ -554,8 +574,7 @@ function ttsDiagnose() {
   info.push(`模型: ${getLlmModel()}`);
   info.push(`对话历史: ${chatHistory.length} 条`);
   info.push(``);
-  info.push(`提示：不支持语音识别的浏览器（如鸿蒙自带浏览器）`);
-  info.push(`可以用"💬文字"按钮跟眨眨聊天。`);
+  info.push(`当前声音风格: ${getVoiceStyle().label}`);
   info.push(`配置大模型后眨眨就能自由对话啦～推荐硅基流动（永久免费）`);
   alert(info.join('\n'));
 }
@@ -566,8 +585,9 @@ let isListening = false;
 let recognitionTimer = null;     // 超时定时器
 let recognitionStartTimer = null;  // 启动超时定时器（onstart 没触发时的安全网）
 let recognitionAttempts = 0;     // 连续失败次数
+let asrFailCount = 0;            // 系统语音识别服务不可用的失败次数
 const RECOGNITION_TIMEOUT = 8000; // 8秒没结果就自动停止
-const START_TIMEOUT = 3000;       // 3秒内 onstart 没触发就降级（鸿蒙常见问题）
+const START_TIMEOUT = 5000;       // 5秒内 onstart 没触发才降级（给系统识别更多启动时间）
 
 // 检测语音识别是否支持
 asrSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -654,9 +674,10 @@ function initVoiceRecognition() {
     clearRecognitionTimer();  // 清除启动超时（onstart 已触发）
     isListening = true;
     recognitionAttempts = 0;
+    asrFailCount = 0;  // 系统识别成功启动，重置失败计数
     voiceBtn.textContent = '🔴 聆听中…';
     setBubble('我在听~请说话');
-    console.log('[语音识别] onstart - 开始监听');
+    console.log('[语音识别] onstart - 系统语音识别已启动');
 
     // 超时保护：8秒没任何回调就自动停止，并降级到 Whisper
     clearRecognitionTimer();
@@ -697,18 +718,38 @@ function initVoiceRecognition() {
     voiceBtn.textContent = '🎤 对话';
 
     if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-      // 鸿蒙/国产浏览器常见：有 SpeechRecognition 对象但服务不可用
-      // 标记为不可用，以后直接用 Whisper，不再重复失败
-      asrSupported = false;
-      console.log('[语音识别] 服务不可用，标记为不支持，以后直接用 Whisper');
-      speak('语音识别服务不可用，正在切换到离线识别模式…');
-      startWhisperRecognition();
+      // 手机系统有语音识别服务，但浏览器未正确接入
+      // 不立即降级，先提示用户开启系统语音识别，给重试机会
+      asrFailCount = (asrFailCount || 0) + 1;
+      console.log('[语音识别] 服务不可用，失败次数:', asrFailCount);
+
+      if (asrFailCount >= 2) {
+        // 连续失败2次，确认系统识别不可用，降级到 Whisper
+        asrSupported = false;
+        console.log('[语音识别] 连续失败，降级到 Whisper WASM');
+        speak('系统语音识别用不了，正在切换到离线识别模式…');
+        startWhisperRecognition();
+      } else {
+        // 第一次失败：提示用户开启系统语音识别服务
+        const tip = '手机系统语音识别服务未就绪。\n\n请检查：\n' +
+          '1. 麦克风权限已允许（地址栏锁图标 → 麦克风 → 允许）\n' +
+          '2. 系统语音服务已开启：\n' +
+          '   • 安卓：设置 → 应用管理 → 浏览器 → 权限 → 麦克风\n' +
+          '   • 鸿蒙：设置 → 应用 → 浏览器 → 权限 → 麦克风\n' +
+          '3. 确认手机有语音识别服务（如"小艺"、"Google 语音"）\n\n' +
+          '点击"确定"重试，或直接用"文字"按钮聊天。';
+        if (confirm(tip)) {
+          // 用户确认，重新初始化再试一次
+          recognition = null;
+          setTimeout(() => voiceBtn.click(), 300);
+        }
+      }
     } else if (event.error === 'no-speech') {
       speak('没听清，再说一次吧');
     } else if (event.error === 'audio-capture') {
       speak('麦克风被占用了，关闭其他录音应用再试');
     } else if (event.error === 'network') {
-      // 网络错误也降级到 Whisper，并标记不支持在线识别
+      // 网络错误也降级到 Whisper
       asrSupported = false;
       console.log('[语音识别] 网络错误，降级到 Whisper WASM');
       speak('网络语音识别用不了，正在切换到离线识别模式…');
@@ -1760,14 +1801,23 @@ voiceBtn.addEventListener('click', async () => {
     // 立即降级到 Whisper WASM
     clearRecognitionTimer();
     recognitionStartTimer = setTimeout(() => {
-      console.warn('[语音识别] onstart 超时，降级到 Whisper WASM');
+      console.warn('[语音识别] onstart 超时，系统识别可能启动慢');
       try { recognition.stop(); } catch (e) {}
       isListening = false;
       voiceBtn.textContent = '🎤 对话';
-      // 标记在线识别不可用，以后直接用 Whisper
-      asrSupported = false;
-      speak('这个浏览器的语音识别不能用，正在切换到离线识别…');
-      startWhisperRecognition();
+      asrFailCount = (asrFailCount || 0) + 1;
+      if (asrFailCount >= 2) {
+        // 连续超时2次，降级到 Whisper
+        asrSupported = false;
+        speak('系统语音识别启动太慢，正在切换到离线识别…');
+        startWhisperRecognition();
+      } else {
+        // 第一次超时，提示用户检查系统语音识别服务
+        speak('系统语音识别没响应，正在重试…');
+        setBubble('系统语音识别启动较慢，正在重试…');
+        recognition = null;
+        setTimeout(() => voiceBtn.click(), 500);
+      }
     }, START_TIMEOUT);
 
     recognition.start();
