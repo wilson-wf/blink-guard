@@ -14,12 +14,13 @@
   <div id="app">
     <!-- 顶部状态栏 -->
     <header class="topbar">
-      <span class="title">👁 眨眨 · AI护眼小怪兽 <span id="versionTag" style="font-size:11px;color:#999;font-weight:normal;">v33</span></span>
+      <span class="title">👁 眨眨 · AI护眼小怪兽 <span id="versionTag" style="font-size:11px;color:#666;font-weight:normal;background:#e8f5e9;padding:1px 6px;border-radius:8px;">v35</span></span>
       <div class="voice-status" id="voiceStatus">🔊 语音检测中…</div>
       <div class="voice-status" id="micStatus">🎤 检测中…</div>
       <button id="dressupBtn" class="install-btn" style="background:#FF9800;">🎨 打扮</button>
       <button id="loginBtn" class="install-btn" style="background:#4CAF50;">👤 登录</button>
       <button id="installBtn" class="install-btn" style="display:none;">安装</button>
+      <a href="./眨眨护眼-v4.apk" download="眨眨护眼-v4.apk" class="install-btn" style="background:#2196F3;text-decoration:none;display:inline-block;">📦 下载APK</a>
     </header>
 
     <!-- 桌宠区域 -->
@@ -219,6 +220,6 @@
     })();
   </script>
   <!-- MediaPipe Pose 改为按需懒加载（在 app.js 的 initPose() 中动态加载），不再阻塞首屏 -->
-  <script src="app.js?v=34"></script>
+  <script src="app.js?v=35"></script>
 </body>
 </html>
