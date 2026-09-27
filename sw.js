@@ -1,5 +1,5 @@
 /* 眨眨护眼 PWA Service Worker — v35 新增下载APK按钮 */
-const CACHE_NAME = 'blink-guard-v36';
+const CACHE_NAME = 'blink-guard-v37';
 const ASSETS = [
   './',
   './index.html',
