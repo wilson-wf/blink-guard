@@ -553,14 +553,14 @@ function ttsDiagnose() {
   info.push(``);
   info.push(`【当前语音识别策略】`);
   if (asrSupported) {
-    info.push(`优先使用手机系统语音识别`);
-    info.push(`失败2次后自动切换到离线Whisper模型`);
-  } else if (whisperLoadFailed) {
-    info.push(`系统识别不可用，离线模型也加载失败`);
-    info.push(`建议用"💬文字"按钮聊天`);
+    info.push(`优先: 手机系统语音识别`);
+    info.push(`失败2次后 → 讯飞在线识别(中文95%+)`);
+    info.push(`讯飞失败 → 离线Whisper模型`);
   } else {
-    info.push(`使用离线Whisper模型（需下载约40MB）`);
+    info.push(`优先: 讯飞在线识别(中文95%+,0.5秒响应)`);
+    info.push(`失败2次后 → 离线Whisper模型`);
   }
+  info.push(`讯飞 APPID: ${XFYUN_CONFIG.APPID}`);
   info.push(``);
   info.push(`【如何开启系统语音识别】`);
   info.push(`1. 允许麦克风权限`);
@@ -688,10 +688,10 @@ function initVoiceRecognition() {
       voiceBtn.textContent = '🎤 对话';
       recognitionAttempts++;
       if (recognitionAttempts >= 2) {
-        // 连续超时2次，说明这个浏览器的语音识别不能用，降级到 Whisper
-        console.log('[语音识别] 连续超时，降级到 Whisper WASM');
-        speak('语音识别没反应，正在切换到离线识别模式…');
-        startWhisperRecognition();
+        // 连续超时2次，说明这个浏览器的语音识别不能用，降级到 讯飞(再失败转Whisper)
+        console.log('[语音识别] 连续超时，降级到 讯飞在线识别');
+        speak('系统识别没反应，正在切换到讯飞在线识别…');
+        startXunfeiRecognition();
       } else {
         speak('没听到声音，再说一次试试');
       }
@@ -724,11 +724,11 @@ function initVoiceRecognition() {
       console.log('[语音识别] 服务不可用，失败次数:', asrFailCount);
 
       if (asrFailCount >= 2) {
-        // 连续失败2次，确认系统识别不可用，降级到 Whisper
+        // 连续失败2次，确认系统识别不可用，降级到 讯飞(再失败转Whisper)
         asrSupported = false;
-        console.log('[语音识别] 连续失败，降级到 Whisper WASM');
-        speak('系统语音识别用不了，正在切换到离线识别模式…');
-        startWhisperRecognition();
+        console.log('[语音识别] 连续失败，降级到 讯飞在线识别');
+        speak('系统识别用不了，正在切换到讯飞在线识别…');
+        startXunfeiRecognition();
       } else {
         // 第一次失败：提示用户开启系统语音识别服务
         const tip = '手机系统语音识别服务未就绪。\n\n请检查：\n' +
@@ -749,17 +749,17 @@ function initVoiceRecognition() {
     } else if (event.error === 'audio-capture') {
       speak('麦克风被占用了，关闭其他录音应用再试');
     } else if (event.error === 'network') {
-      // 网络错误也降级到 Whisper
+      // 网络错误也降级到 讯飞
       asrSupported = false;
-      console.log('[语音识别] 网络错误，降级到 Whisper WASM');
-      speak('网络语音识别用不了，正在切换到离线识别模式…');
-      startWhisperRecognition();
+      console.log('[语音识别] 网络错误，降级到 讯飞在线识别');
+      speak('网络识别用不了，正在切换到讯飞在线识别…');
+      startXunfeiRecognition();
     } else if (event.error === 'aborted') {
       // 用户主动停止或超时停止，不额外提示
     } else {
-      // 其他错误也尝试 Whisper 降级
-      console.log('[语音识别] 未知错误，降级到 Whisper WASM');
-      startWhisperRecognition();
+      // 其他错误也尝试 讯飞 降级
+      console.log('[语音识别] 未知错误，降级到 讯飞在线识别');
+      startXunfeiRecognition();
     }
   };
 
@@ -773,7 +773,467 @@ function initVoiceRecognition() {
   return true;
 }
 
-// ============ Whisper WASM 语音识别（纯前端降级方案，适配鸿蒙等不支持 SpeechRecognition 的浏览器） ============
+// ============ 讯飞语音识别(在线,中文95%+,0.5秒响应,优先于Whisper) ============
+const XFYUN_CONFIG = {
+  APPID: '541cabf3',
+  API_KEY: '03295269dbf6c71c58a29e89815ea3ea',
+  API_SECRET: 'MDcyOWY3MDZlM2Y2ZDVlNGM1ODJmNDM4',
+  HOST: 'iat-api.xfyun.cn',
+  PATH: '/v2/iat',
+};
+
+// 讯飞鉴权URL生成(HMAC-SHA1签名)
+async function buildXfyunAuthUrl() {
+  const { API_KEY, API_SECRET, HOST, PATH } = XFYUN_CONFIG;
+  const date = new Date().toUTCString();
+  const requestLine = `GET ${PATH} HTTP/1.1`;
+  const signatureOrigin = `host: ${HOST}\ndate: ${date}\n${requestLine}`;
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(API_SECRET);
+  const msgData = encoder.encode(signatureOrigin);
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', keyData, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
+  );
+  const sigBuf = await crypto.subtle.sign('HMAC', cryptoKey, msgData);
+  const signature = btoa(String.fromCharCode(...new Uint8Array(sigBuf)));
+  const authOrigin = `api_key="${API_KEY}", algorithm="hmac-sha1", headers="host date request-line", signature="${signature}"`;
+  const auth = btoa(authOrigin);
+  return `wss://${HOST}${PATH}?authorization=${encodeURIComponent(auth)}&date=${encodeURIComponent(date)}&host=${HOST}`;
+}
+
+// 讯飞语音识别主流程:5秒录音,边录边发,流式返回
+async function startXunfeiRecognition() {
+  console.log('[讯飞] 启动语音识别');
+  voiceBtn.textContent = '🎤 对话';
+  let audioContext = null, mediaStream = null, processor = null, source = null;
+  let ws = null, framesSent = 0, lastResult = '';
+  const MAX_DURATION = 6000;       // 最长录音 6 秒
+  const FRAME_INTERVAL = 40;      // 每帧 40ms
+
+  try {
+    // 1. 录音 + 获取 16kHz PCM
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        sampleRate: 16000,
+        echoCancellation: true,
+        noiseSuppression: true,
+      }
+    });
+    micPermission = 'granted';
+    updateMicStatus();
+
+    audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    source = audioContext.createMediaStreamSource(mediaStream);
+    // ScriptProcessor 已 deprecated 但兼容性最好,所有鸿蒙/安卓浏览器都支持
+    const bufferSize = 4096;
+    processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+    voiceBtn.textContent = '🔴 聆听中…（6秒）';
+    setBubble('我在听~请说话(6秒后自动识别)');
+    console.log('[讯飞] 开始录音');
+
+    // 2. 建立WebSocket
+    const url = await buildXfyunAuthUrl();
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    // WebSocket 准备好才开始送数据
+    const wsReady = new Promise((resolve, reject) => {
+      const to = setTimeout(() => reject(new Error('讯飞连接超时')), 8000);
+      ws.onopen = () => { clearTimeout(to); resolve(); };
+      ws.onerror = (e) => { clearTimeout(to); reject(new Error('讯飞连接错误')); };
+    });
+    await wsReady;
+    console.log('[讯飞] WebSocket 已连接');
+
+    // 3. 收识别结果
+    const resultPromise = new Promise((resolve) => {
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.code !== 0) {
+            console.warn('[讯飞] 业务错误:', data.code, data.message);
+            resolve({ text: '', error: data.message });
+            return;
+          }
+          if (data.data && data.data.result) {
+            const obj = data.data.result;
+            // wpgs 模式结果分多段,需拼接
+            const wsStr = obj.ws || [];
+            const seg = wsStr.map(w => (w.cw || []).map(c => c.w || '').join('')).join('');
+            if (seg) lastResult += seg;
+          }
+          if (data.data && data.data.status === 2) {
+            // 最后结果
+            resolve({ text: lastResult });
+          }
+        } catch (err) {
+          console.warn('[讯飞] 解析消息失败:', err);
+        }
+      };
+      ws.onclose = () => resolve({ text: lastResult });
+      ws.onerror = () => resolve({ text: lastResult, error: 'ws error' });
+    });
+
+    // 4. 发送首帧(包含 common + business)
+    const sendFrame = (audioBase64, status) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const payload = {
+        common: status === 0 ? { app_id: XFYUN_CONFIG.APPID } : undefined,
+        business: status === 0 ? {
+          language: 'zh_cn',
+          domain: 'iat',
+          accent: 'mandarin',
+          vad_eos: 3000,
+          dwa: 'wpgs',
+        } : undefined,
+        data: {
+          status: status,
+          format: 'audio/L16;rate=16000',
+          encoding: 'raw',
+          audio: audioBase64,
+        }
+      };
+      ws.send(JSON.stringify(payload));
+      framesSent++;
+    };
+
+    // 5. 用 ScriptProcessor 边录边送
+    processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      // float32 → int16
+      const pcm16 = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      // 转 base64
+      let binary = '';
+      for (let i = 0; i < pcm16.length; i++) binary += String.fromCharCode(pcm16[i] & 0xff, (pcm16[i] >> 8) & 0xff);
+      const b64 = btoa(binary);
+      const status = framesSent === 0 ? 0 : 1;
+      sendFrame(b64, status);
+    };
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    // 6. 录音 MAX_DURATION 后停止,发送尾帧
+    setTimeout(() => {
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          // 尾帧 audio 可空
+          sendFrame('', 2);
+          console.log('[讯飞] 已发尾帧');
+        }
+      } catch (_) {}
+      try { processor && processor.disconnect(); } catch (_) {}
+      try { source && source.disconnect(); } catch (_) {}
+      try { mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+      try { audioContext && audioContext.close(); } catch (_) {}
+    }, MAX_DURATION);
+
+    // 7. 等待结果
+    const { text, error } = await resultPromise;
+    console.log('[讯飞] 识别结果:', text, error || '');
+    try { ws.close(); } catch (_) {}
+
+    voiceBtn.textContent = '🎤 对话';
+
+    if (text) {
+      handleVoiceCommand(text);
+    } else if (error) {
+      setBubble('讯飞识别失败:' + error.slice(0, 20) + ',改用离线模式');
+      startWhisperRecognition();
+    } else {
+      speak('没听清,再说一次试试');
+    }
+    // 唤醒开关还开着 → 恢复后台监听
+    maybeResumeWakeWord();
+  } catch (e) {
+    console.error('[讯飞] 识别失败:', e);
+    voiceBtn.textContent = '🎤 对话';
+    try { ws && ws.close(); } catch (_) {}
+    try { processor && processor.disconnect(); } catch (_) {}
+    try { source && source.disconnect(); } catch (_) {}
+    try { mediaStream && mediaStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+    try { audioContext && audioContext.close(); } catch (_) {}
+    const msg = (e && e.message) || String(e);
+    setBubble('讯飞识别失败(' + msg.slice(0, 30) + '),切换到离线模式');
+    startWhisperRecognition();
+    maybeResumeWakeWord();
+  }
+}
+
+// ============ 唤醒词监听"眨眨" — 后台持续识别,命中后自动进入对话 ============
+let wakeWordActive = false;       // 唤醒监听是否开启
+let wakeWordStream = null;        // 持续录音流
+let wakeWordCtx = null;           // AudioContext
+let wakeWordProcessor = null;     // ScriptProcessor
+let wakeWordSource = null;
+let wakeWordAnalyser = null;      // 用于音量判断(静音时不送讯飞,省额度)
+let wakeWordWs = null;            // 当前 WebSocket
+let wakeWordBusy = false;         // 是否正在送讯飞识别
+let wakeWordHit = false;          // 是否已命中(命中后停止监听进入对话)
+let wakeWordBuffer = [];          // PCM 累积缓冲
+let wakeWordChunkTimer = null;
+const WAKE_WORD_INTERVAL = 1500;  // 每1.5秒送一次讯飞识别(短文本关键词检测)
+const WAKE_WORD_KEYWORDS = ['眨眨', '扎扎', '渣渣', '炸炸', '查查', '吒吒', '咱咱', '扎眨'];
+const WAKE_WORD_VOLUME_THRESHOLD = 0.005;  // 静音阈值,低于此值不送讯飞(省额度)
+
+// 把唤醒按钮绑定好
+const wakeWordBtn = document.getElementById('wakeWordBtn');
+
+function setWakeWordBtnState(state) {
+  if (!wakeWordBtn) return;
+  if (state === 'on') {
+    wakeWordBtn.textContent = '🔴 唤醒中';
+    wakeWordBtn.style.background = '#E91E63';
+  } else if (state === 'listening') {
+    wakeWordBtn.textContent = '👂 已唤醒';
+    wakeWordBtn.style.background = '#4CAF50';
+  } else {
+    wakeWordBtn.textContent = '👂 唤醒';
+    wakeWordBtn.style.background = '#9C27B0';
+  }
+}
+
+// 计算音量RMS,判断是否真有人在说话
+function calcRMS(int16arr) {
+  let sum = 0;
+  for (let i = 0; i < int16arr.length; i++) {
+    const v = int16arr[i] / 32768;
+    sum += v * v;
+  }
+  return Math.sqrt(sum / int16arr.length);
+}
+
+// 启动唤醒监听
+async function startWakeWord() {
+  if (wakeWordActive) return;
+  console.log('[唤醒] 启动监听');
+
+  try {
+    wakeWordStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        sampleRate: 16000,
+        echoCancellation: true,
+        noiseSuppression: true,
+      }
+    });
+    micPermission = 'granted';
+    updateMicStatus();
+
+    wakeWordCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    if (wakeWordCtx.state === 'suspended') await wakeWordCtx.resume();
+    wakeWordSource = wakeWordCtx.createMediaStreamSource(wakeWordStream);
+    const bufferSize = 4096;
+    wakeWordProcessor = wakeWordCtx.createScriptProcessor(bufferSize, 1, 1);
+    wakeWordAnalyser = wakeWordCtx.createAnalyser();
+    wakeWordAnalyser.fftSize = 256;
+    wakeWordSource.connect(wakeWordAnalyser);
+    wakeWordAnalyser.connect(wakeWordProcessor);
+    wakeWordProcessor.connect(wakeWordCtx.destination);
+
+    wakeWordBuffer = [];
+    wakeWordActive = true;
+    wakeWordHit = false;
+    setWakeWordBtnState('on');
+    setBubble('在后台听"眨眨~"叫我就醒');
+    console.log('[唤醒] 已开始录音');
+
+    // PCM 录制到缓冲
+    wakeWordProcessor.onaudioprocess = (e) => {
+      if (!wakeWordActive || wakeWordBusy || wakeWordHit) return;
+      const input = e.inputBuffer.getChannelData(0);
+      const pcm16 = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      // 累积 PCM 到缓冲
+      for (let i = 0; i < pcm16.length; i++) wakeWordBuffer.push(pcm16[i]);
+    };
+
+    // 每1.5秒送一次讯飞做关键词检测
+    wakeWordChunkTimer = setInterval(() => {
+      if (!wakeWordActive || wakeWordBusy || wakeWordHit) return;
+      if (wakeWordBuffer.length < 4000) return;  // 太短不送
+      const chunk = wakeWordBuffer.slice(0, 16000 * 5);  // 最多送5秒
+      wakeWordBuffer = wakeWordBuffer.slice(chunk.length);  // 保留剩余
+      // 检查音量
+      const rms = calcRMS(new Int16Array(chunk));
+      if (rms < WAKE_WORD_VOLUME_THRESHOLD) {
+        // 静音,不送讯飞(省额度)
+        return;
+      }
+      detectWakeWord(chunk);
+    }, WAKE_WORD_INTERVAL);
+  } catch (e) {
+    console.error('[唤醒] 启动失败:', e);
+    setBubble('唤醒启动失败: ' + (e.message || e));
+    stopWakeWord();
+  }
+}
+
+// 用讯飞识别一段音频,匹配关键词
+async function detectWakeWord(pcm16Arr) {
+  wakeWordBusy = true;
+  let ws = null;
+  try {
+    const url = await buildXfyunAuthUrl();
+    ws = new WebSocket(url);
+    let result = '';
+    const done = new Promise((resolve) => {
+      const to = setTimeout(() => { try { ws.close(); } catch (_) {} resolve(result); }, 3000);
+      ws.onopen = () => {
+        // 首帧
+        const firstPayload = {
+          common: { app_id: XFYUN_CONFIG.APPID },
+          business: { language: 'zh_cn', domain: 'iat', accent: 'mandarin', vad_eos: 1500, dwa: 'wpgs' },
+          data: { status: 0, format: 'audio/L16;rate=16000', encoding: 'raw', audio: int16ToBase64(pcm16Arr.slice(0, 8000)) }
+        };
+        ws.send(JSON.stringify(firstPayload));
+        // 尾帧
+        setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              data: { status: 2, format: 'audio/L16;rate=16000', encoding: 'raw', audio: int16ToBase64(pcm16Arr.slice(8000)) }
+            }));
+          }
+        }, 200);
+      };
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.data && data.data.result) {
+            const wsStr = data.data.result.ws || [];
+            const seg = wsStr.map(w => (w.cw || []).map(c => c.w || '').join('')).join('');
+            if (seg) result += seg;
+          }
+        } catch (_) {}
+      };
+      ws.onclose = () => { clearTimeout(to); resolve(result); };
+      ws.onerror = () => { clearTimeout(to); resolve(result); };
+    });
+
+    const text = await done;
+    console.log('[唤醒] 检测到:', text);
+
+    // 关键词模糊匹配
+    const hit = WAKE_WORD_KEYWORDS.some(kw => text.includes(kw));
+    if (hit && !wakeWordHit) {
+      wakeWordHit = true;
+      console.log('[唤醒] 命中关键词!');
+      onWakeWordHit();
+    }
+  } catch (e) {
+    console.warn('[唤醒] 检测异常:', e);
+  } finally {
+    try { ws && ws.close(); } catch (_) {}
+    wakeWordBusy = false;
+  }
+}
+
+// Int16 数组转 base64
+function int16ToBase64(arr) {
+  if (arr.length === 0) return '';
+  let binary = '';
+  const len = arr.length || arr.byteLength / 2;
+  for (let i = 0; i < len; i++) {
+    const v = arr.length ? arr[i] : new Int16Array(arr.buffer || arr)[i];
+    binary += String.fromCharCode(v & 0xff, (v >> 8) & 0xff);
+  }
+  return btoa(binary);
+}
+
+// 唤醒命中后:停止监听 → 自动进入对话模式
+async function onWakeWordHit() {
+  setWakeWordBtnState('listening');
+  setBubble('我醒啦~请说...');
+  speak('我在,请说');
+  // 停止唤醒监听,但保留麦克风权限
+  await stopWakeWordStream(true);
+  // 等 TTS 播完再开始对话识别
+  const waitSpeak = () => {
+    if (isSpeaking) {
+      setTimeout(waitSpeak, 300);
+    } else {
+      // 自动触发讯飞对话识别
+      setTimeout(() => startXunfeiRecognition(), 200);
+    }
+  };
+  setTimeout(waitSpeak, 500);
+}
+
+// 完全停止唤醒监听
+function stopWakeWord(keepStream = false) {
+  wakeWordActive = false;
+  if (wakeWordChunkTimer) {
+    clearInterval(wakeWordChunkTimer);
+    wakeWordChunkTimer = null;
+  }
+  if (!keepStream) {
+    stopWakeWordStream(false);
+    setWakeWordBtnState('off');
+  }
+  console.log('[唤醒] 已停止');
+}
+
+// 只停录音流,不关按钮
+async function stopWakeWordStream(softStop) {
+  try { wakeWordProcessor && wakeWordProcessor.disconnect(); } catch (_) {}
+  try { wakeWordAnalyser && wakeWordAnalyser.disconnect(); } catch (_) {}
+  try { wakeWordSource && wakeWordSource.disconnect(); } catch (_) {}
+  if (!softStop) {
+    try { wakeWordStream && wakeWordStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+    try { wakeWordCtx && wakeWordCtx.close(); } catch (_) {}
+    wakeWordStream = null;
+    wakeWordCtx = null;
+  }
+  wakeWordProcessor = null;
+  wakeWordSource = null;
+  wakeWordAnalyser = null;
+  wakeWordBusy = false;
+  wakeWordHit = false;
+  wakeWordBuffer = [];
+}
+
+// 对话识别完成后,如果唤醒开关还开着,自动恢复监听
+function maybeResumeWakeWord() {
+  if (wakeWordBtn && wakeWordBtn.textContent.includes('已唤醒')) {
+    console.log('[唤醒] 对话结束,恢复后台监听');
+    setWakeWordBtnState('on');
+    wakeWordHit = false;
+    // 重新开始录音流(之前被关掉了)
+    if (!wakeWordStream) {
+      startWakeWord();
+    } else {
+      wakeWordActive = true;
+    }
+  }
+}
+
+// 绑定按钮:点击切换唤醒开关
+if (wakeWordBtn) {
+  wakeWordBtn.addEventListener('click', async () => {
+    unlockSpeech();
+    if (wakeWordActive) {
+      stopWakeWord();
+      setBubble('已关闭唤醒');
+      return;
+    }
+    if (micPermission === 'denied') {
+      alert('麦克风权限被拒,无法开启唤醒\n请到浏览器设置允许麦克风后重试');
+      return;
+    }
+    await startWakeWord();
+  });
+}
+
+// ============ Whisper WASM 语音识别（纯前端降级方案,适配鸿蒙等不支持 SpeechRecognition 的浏览器） ============
 let whisperPipe = null;      // Whisper 识别管道（加载后缓存）
 let whisperLoading = false;  // 是否正在加载模型
 let whisperLoadFailed = false; // 模型是否加载失败过（避免重复尝试）
@@ -901,8 +1361,29 @@ async function startWhisperRecognition() {
     micPermission = 'granted';
     updateMicStatus();
 
+    // 探测浏览器支持的录音格式(鸿蒙浏览器可能不支持 webm,默认录 mp4/ogg)
+    const CANDIDATE_MIMES = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4',           // 鸿蒙/iOS Safari 常见
+      'audio/mpeg',
+    ];
+    let pickedMime = '';
+    for (const m of CANDIDATE_MIMES) {
+      try {
+        if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) {
+          pickedMime = m;
+          break;
+        }
+      } catch (_) {}
+    }
+    console.log('[Whisper] 录音 mime:', pickedMime || '默认');
+
     const chunks = [];
-    whisperRecorder = new MediaRecorder(whisperStream);
+    whisperRecorder = pickedMime
+      ? new MediaRecorder(whisperStream, { mimeType: pickedMime })
+      : new MediaRecorder(whisperStream);
     whisperRecorder.ondataavailable = e => chunks.push(e.data);
 
     voiceBtn.textContent = '🔴 聆听中…（5秒）';
@@ -926,7 +1407,9 @@ async function startWhisperRecognition() {
     // 等 onstop 完成
     await new Promise(r => { whisperRecorder.onstop = r; });
 
-    const blob = new Blob(chunks, { type: 'audio/webm' });
+    // 用实际录音的 mime(没探测到就用 webm 兜底,decodeAudioData 通常能自动识别)
+    const blobMime = pickedMime || (chunks[0] && chunks[0].type) || 'audio/webm';
+    const blob = new Blob(chunks, { type: blobMime });
     const audioData = await audioBlobToWhisperInput(blob);
 
     const result = await pipe(audioData, { language: 'zh', task: 'transcribe' });
@@ -1755,19 +2238,19 @@ async function handleLlmReply(text) {
 voiceBtn.addEventListener('click', async () => {
   unlockSpeech();
 
-  // 情况1：浏览器不支持 SpeechRecognition → 用 Whisper WASM 方案
+  // 情况1：浏览器不支持 SpeechRecognition → 用 讯飞在线识别(失败再降级到Whisper)
   if (!asrSupported) {
-    console.log('[对话] SpeechRecognition 不可用，切换到 Whisper WASM 方案');
-    await startWhisperRecognition();
+    console.log('[对话] SpeechRecognition 不可用，切换到讯飞在线识别');
+    await startXunfeiRecognition();
     return;
   }
 
   if (!recognition) {
     const ok = initVoiceRecognition();
     if (!ok) {
-      // SpeechRecognition 初始化失败也用 Whisper
-      console.log('[对话] SpeechRecognition 初始化失败，切换到 Whisper WASM 方案');
-      await startWhisperRecognition();
+      // SpeechRecognition 初始化失败也用 讯飞
+      console.log('[对话] SpeechRecognition 初始化失败，切换到讯飞在线识别');
+      await startXunfeiRecognition();
       return;
     }
   }
@@ -1807,10 +2290,10 @@ voiceBtn.addEventListener('click', async () => {
       voiceBtn.textContent = '🎤 对话';
       asrFailCount = (asrFailCount || 0) + 1;
       if (asrFailCount >= 2) {
-        // 连续超时2次，降级到 Whisper
+        // 连续超时2次，降级到 讯飞
         asrSupported = false;
-        speak('系统语音识别启动太慢，正在切换到离线识别…');
-        startWhisperRecognition();
+        speak('系统识别启动太慢，正在切换到讯飞在线识别…');
+        startXunfeiRecognition();
       } else {
         // 第一次超时，提示用户检查系统语音识别服务
         speak('系统语音识别没响应，正在重试…');
@@ -2862,18 +3345,26 @@ const PLATFORM_NAMES = {
 const DOWNLOAD_OPTIONS = [
   {
     platform: 'android', name: 'Android', icon: '🤖',
-    desc: '原生应用，直接安装 APK', file: './blinkguard-v5.apk',
-    downloadName: 'blinkguard-v5.apk', tag: '推荐'
+    desc: '原生应用，直接安装 APK（已修复闪退）', file: './blinkguard-v6.apk',
+    downloadName: 'blinkguard-v6.apk', tag: '推荐'
   },
   {
     platform: 'harmony', name: '鸿蒙', icon: '🌀',
-    desc: 'DevEco Studio 构建 HAP', file: './BlinkGuard-鸿蒙版.zip',
-    downloadName: 'BlinkGuard-鸿蒙版.zip', tag: '推荐'
+    desc: '已编译签名 HAP 包，用 hdc 工具安装到开发者模式手机；或下载工程源码在 DevEco Studio 用本人华为账号证书重签',
+    file: './BlinkGuard-signed.hap',
+    downloadName: 'BlinkGuard-signed.hap', tag: 'HAP'
+  },
+  {
+    platform: 'harmony-src', name: '鸿蒙源码', icon: '📦',
+    desc: 'DevEco Studio 工程源码 zip，需在电脑上编译签名后安装',
+    file: './BlinkGuard-鸿蒙版.zip',
+    downloadName: 'BlinkGuard-鸿蒙版.zip', tag: '源码'
   },
   {
     platform: 'ios', name: 'iOS', icon: '🍎',
-    desc: 'Xcode 构建安装', file: './BlinkGuard-iOS版.zip',
-    downloadName: 'BlinkGuard-iOS版.zip', tag: '推荐'
+    desc: 'Xcode 工程源码 zip，需在 Mac 上用 Xcode 编译签名后安装',
+    file: './BlinkGuard-iOS版.zip',
+    downloadName: 'BlinkGuard-iOS版.zip', tag: '源码'
   }
 ];
 
