@@ -8,7 +8,7 @@
  */
 
 // ============ 应用版本号（页面标题旁显示，方便确认是否最新版） ============
-const APP_VERSION = 'v42';
+const APP_VERSION = 'v43';
 
 // ============ Supabase 配置（放在最前，供日志推送等模块使用） ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
@@ -3349,8 +3349,8 @@ const PLATFORM_NAMES = {
 const DOWNLOAD_OPTIONS = [
   {
     platform: 'android', name: 'Android', icon: '🤖',
-    desc: '原生应用，直接安装 APK（已修复闪退）', file: './blinkguard-v6.apk',
-    downloadName: 'blinkguard-v6.apk', tag: '推荐'
+    desc: '原生应用，本地打包资源，直接安装 APK', file: './blinkguard-android.apk',
+    downloadName: 'blinkguard-android.apk', tag: '推荐'
   },
   {
     platform: 'harmony', name: '鸿蒙', icon: '🌀',

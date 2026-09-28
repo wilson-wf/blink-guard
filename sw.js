@@ -1,10 +1,10 @@
-/* 眨眨护眼 PWA Service Worker — v42 自动监控+远程查看 */
-const CACHE_NAME = 'blink-guard-v42';
+/* 眨眨护眼 PWA Service Worker — v43 Android APK下载 */
+const CACHE_NAME = 'blink-guard-v43';
 const ASSETS = [
   './',
   './index.html',
-  './style.css?v=42',
-  './app.js?v=42',
+  './style.css?v=43',
+  './app.js?v=43',
   './manifest.json',
 ];
 
