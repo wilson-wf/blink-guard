@@ -8,7 +8,7 @@
  */
 
 // ============ 应用版本号（页面标题旁显示，方便确认是否最新版） ============
-const APP_VERSION = 'v43';
+const APP_VERSION = 'v44';
 
 // ============ Supabase 配置（放在最前，供日志推送等模块使用） ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
@@ -3353,6 +3353,12 @@ const DOWNLOAD_OPTIONS = [
     downloadName: 'blinkguard-android.apk', tag: '推荐'
   },
   {
+    platform: 'trae-android', name: 'TRAE 安卓版', icon: '⚡',
+    desc: 'TRAE 官方移动端（AI 办公平台），点击跳转华为应用市场安装',
+    file: 'appmarket://details?id=com.bytedance.trae.cn',
+    external: true, tag: '官方'
+  },
+  {
     platform: 'harmony', name: '鸿蒙', icon: '🌀',
     desc: '已编译签名 HAP 包，用 hdc 工具安装到开发者模式手机；或下载工程源码在 DevEco Studio 用本人华为账号证书重签',
     file: './BlinkGuard-signed.hap',
@@ -3391,8 +3397,11 @@ function showDownloadModal() {
     const isCurrent = opt.platform === platform;
     const tagHtml = isCurrent ? `<span style="background:#4CAF50;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:8px;">当前设备</span>` : '';
     const borderColor = isCurrent ? '#4CAF50' : '#e0e0e0';
+    // 外部链接（如 appmarket://）不加 download 属性
+    const isExternal = opt.external || /^(https?:|appmarket:)/.test(opt.file || '');
+    const dlAttr = isExternal ? '' : `download="${opt.downloadName}"`;
     return `
-      <a href="${opt.file}" download="${opt.downloadName}" 
+      <a href="${opt.file}" ${dlAttr}
          style="display:flex;align-items:center;padding:14px;border:2px solid ${borderColor};border-radius:12px;text-decoration:none;color:#333;background:${isCurrent ? '#f1f8e9' : '#fafafa'};">
         <span style="font-size:32px;margin-right:12px;">${opt.icon}</span>
         <div style="flex:1;">
