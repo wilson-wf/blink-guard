@@ -7,14 +7,14 @@
   <meta name="referrer" content="no-referrer">
   <title>眨眨 - AI护眼小怪兽</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="style.css?v=44">
+  <link rel="stylesheet" href="style.css?v=45">
   <link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
   <div id="app">
     <!-- 顶部状态栏 -->
     <header class="topbar">
-      <span class="title">👁 眨眨 · AI护眼小怪兽 <span id="versionTag" style="font-size:11px;color:#666;font-weight:normal;background:#e8f5e9;padding:1px 6px;border-radius:8px;">v44</span></span>
+      <span class="title">👁 眨眨 · AI护眼小怪兽 <span id="versionTag" style="font-size:11px;color:#666;font-weight:normal;background:#e8f5e9;padding:1px 6px;border-radius:8px;">v45</span></span>
       <div class="voice-status" id="voiceStatus">🔊 语音检测中…</div>
       <div class="voice-status" id="micStatus">🎤 检测中…</div>
       <button id="dressupBtn" class="install-btn" style="background:#FF9800;">🎨 打扮</button>
@@ -251,6 +251,45 @@
       }).catch(function(){});
     }
   </script>
-  <script src="app.js?v=44"></script>
+  <!-- 老旧浏览器兼容检测：Chrome30/Android4.4 等不支持现代JS，直接提示下载APK -->
+  <script>
+  (function(){
+    function supportsModernJS(){
+      try { new Function('const a=1;'); } catch(e){ return false; }
+      try { new Function('var f=(x)=>x;'); } catch(e){ return false; }
+      try { new Function('async function f(){}'); } catch(e){ return false; }
+      if (typeof Promise === 'undefined') return false;
+      return true;
+    }
+    if (!supportsModernJS()) {
+      // 清除页面内容，显示降级提示
+      document.documentElement.innerHTML =
+        '<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '<title>眨眨 - 请下载App</title>' +
+        '<style>' +
+          'body{font-family:sans-serif;background:#f5f7fa;margin:0;padding:30px 20px;min-height:100vh;}' +
+          '.card{max-width:420px;margin:40px auto;background:#fff;border-radius:16px;padding:28px 24px;box-shadow:0 4px 20px rgba(0,0,0,0.08);}' +
+          '.logo{font-size:48px;text-align:center;margin-bottom:16px;}' +
+          'h1{font-size:20px;color:#333;text-align:center;margin:0 0 12px;}' +
+          'p{font-size:14px;color:#666;line-height:1.6;margin:8px 0;}' +
+          '.tip{background:#fff3e0;color:#e65100;padding:12px;border-radius:8px;font-size:13px;margin:16px 0;}' +
+          'a.btn{display:block;text-align:center;background:#2196F3;color:#fff;text-decoration:none;padding:14px;border-radius:10px;font-size:16px;font-weight:bold;margin-top:16px;}' +
+          'a.btn.alt{background:#4CAF50;margin-top:10px;}' +
+          '.ver{text-align:center;font-size:11px;color:#999;margin-top:16px;}' +
+        '</style></head>' +
+        '<body><div class="card">' +
+          '<div class="logo">👁</div>' +
+          '<h1>眨眨 · AI护眼小怪兽</h1>' +
+          '<p>您的手机浏览器版本过低，无法运行本网页应用。</p>' +
+          '<div class="tip">建议：点击下方按钮下载安装「眨眨」安卓版 App，不依赖浏览器，老旧手机也能流畅运行。</div>' +
+          '<a class="btn" href="./blinkguard-android.apk" download>⬇️ 下载眨眨安卓版 (APK)</a>' +
+          '<a class="btn alt" href="https://www.trae.cn/ide/download" target="_blank">⚡ 下载 TRAE 官方安卓版</a>' +
+          '<p style="font-size:12px;color:#999;text-align:center;margin-top:14px;">或使用较新的浏览器（Chrome 49+ / 手机自带现代浏览器）访问本页面</p>' +
+          '<div class="ver">v44 · 兼容检测</div>' +
+        '</div></body>';
+    }
+  })();
+  </script>
+  <script src="app.js?v=45"></script>
 </body>
 </html>

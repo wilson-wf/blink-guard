@@ -8,7 +8,7 @@
  */
 
 // ============ 应用版本号（页面标题旁显示，方便确认是否最新版） ============
-const APP_VERSION = 'v44';
+const APP_VERSION = 'v45';
 
 // ============ Supabase 配置（放在最前，供日志推送等模块使用） ============
 const SUPABASE_URL = 'https://ibwbebrwyjjukmmsfipa.supabase.co';
